@@ -1,0 +1,69 @@
+package cmd
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/metruzanca/disc/internal/config"
+	"github.com/metruzanca/disc/internal/discord"
+	"github.com/metruzanca/disc/internal/util"
+	"github.com/spf13/cobra"
+)
+
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Set up disc with your bot token",
+	Long: `Initialize disc by providing your Discord bot token.
+
+The token will be saved to the disc config file for future use.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		token, err := readToken()
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(token) == "" {
+			return fmt.Errorf("no token provided")
+		}
+
+		// Validate the token by connecting briefly.
+		client, err := discord.New(strings.TrimSpace(token))
+		if err != nil {
+			return fmt.Errorf("invalid token: %w", err)
+		}
+		defer client.Close()
+
+		if err := client.WaitReady(); err != nil {
+			return err
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		cfg.Token = strings.TrimSpace(token)
+		if err := config.Save(cfg); err != nil {
+			return err
+		}
+
+		util.Green.Printf("Token saved.\n")
+		fmt.Println()
+		fmt.Println("Invite your bot to a server using this link:")
+		fmt.Println()
+		fmt.Println(discord.InviteLink(client.User().ID))
+		return nil
+	},
+}
+
+func readToken() (string, error) {
+	fmt.Println("Enter your Discord bot token:")
+	fmt.Print("> ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && err.Error() != "EOF" {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
+}
