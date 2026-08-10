@@ -6,7 +6,8 @@ Reimplement `disc` (github.com/metruzanca/disc) from scratch as a self-owned, re
 ## Tool identity (recovered from binary)
 - Module path: `github.com/metruzanca/disc`
 - Go 1.25, built with `discordgo`, `cobra`/`pflag`, `BurntSushi/toml` (config), `fatih/color` (output), `gorilla/websocket` (via discordgo).
-- Config file: `~/.config/disc/disc.toml` (permissions `0600`) with fields `token`, `server_id`. No environment variables are used as a source of truth.
+- Config file: none. Configuration comes from `DISCORD_TOKEN` and `DISCORD_SERVER_ID` environment variables, optionally loaded from a local `.env` file. No global config file, so multiple bots using the same binary stay isolated.
+- `disc init` and `disc config set-server` persist values to `.env`.
 
 ## Project structure
 ```
@@ -78,11 +79,11 @@ require:
 - Flags: `--name`, `--color` (hex), `--hoist`, `--mentionable`, `--role`, `--server`, `-y`. Confirmation prompt.
 
 ## Cross-cutting behavior
-- **Server resolution order:** `--server` flag → `server_id` from config.
-- **Token source:** config file only (no env var fallback).
+- **Server resolution order:** `--server` flag → `DISCORD_SERVER_ID` env (or `.env`).
+- **Token source:** `DISCORD_TOKEN` env var (or `.env`).
 - **Confirmation prompts** on all mutating commands unless `-y/--yes`.
 - **Output style:** colorized via `fatih/color`; use "guild" internally (matches Discord API).
-- Config writes use `0600` perms; directory `~/.config/disc/`.
+- `.env` is git-ignored to keep the token out of version control.
 
 ## Verification
 1. `go build ./...` and `go vet ./...` pass.
@@ -95,7 +96,7 @@ require:
 - Match output formatting exactly is best-effort from binary; acceptable to approximate colors/labels.
 
 ## Decisions
-- Config persists as TOML at `~/.config/disc/disc.toml`.
-- Token and default server ID are read **only** from the config file. No environment variables are used as a source of truth, so multiple bots using the same binary stay isolated (each has its own config file).
+- Configuration comes from `DISCORD_TOKEN` / `DISCORD_SERVER_ID` env vars, optionally loaded from a local `.env` file. No global config file.
+- `disc init` and `disc config set-server` persist values to `.env`.
 - Commands are functionally identical to the original; output fidelity is best-effort.
 - No extra `--json` flag (keep minimal to match original).

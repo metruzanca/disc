@@ -1,62 +1,125 @@
-// Package config handles loading and saving disc's persistent configuration.
+// Package config handles loading disc configuration from the environment
+// and a local .env file.
 package config
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-
-	"github.com/BurntSushi/toml"
+	"strings"
 )
 
-// Config is the persisted disc configuration.
+const (
+	// TokenEnv is the env var for the bot token.
+	TokenEnv = "DISCORD_TOKEN"
+	// ServerIDEnv is the env var for the default server.
+	ServerIDEnv = "DISCORD_SERVER_ID"
+	// EnvFileName is the local env file loaded at startup.
+	EnvFileName = ".env"
+)
+
+// Config holds the resolved disc configuration.
 type Config struct {
-	Token    string `toml:"token"`
-	ServerID string `toml:"server_id"`
+	Token    string
+	ServerID string
 }
 
-// ConfigPath returns the path to the config file.
-func ConfigPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		// fall back to the current user home
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "disc", "disc.toml")
-}
-
-// Load reads the config file. It returns an empty config if the file
-// does not exist.
+// Load reads environment variables (and a local .env file if present) and
+// returns the resolved configuration.
 func Load() (Config, error) {
-	var cfg Config
-	path := ConfigPath()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return cfg, nil
+	if err := loadEnvFile(); err != nil {
+		return Config{}, err
 	}
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return cfg, fmt.Errorf("failed to read config: %w", err)
-	}
-	return cfg, nil
+	return Config{
+		Token:    os.Getenv(TokenEnv),
+		ServerID: os.Getenv(ServerIDEnv),
+	}, nil
 }
 
-// Save writes the config to disk with 0600 permissions, creating the
-// parent directory if necessary.
-func Save(cfg Config) error {
-	path := ConfigPath()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create config dir: %w", err)
-	}
-
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+// loadEnvFile parses a local .env file into the process environment without
+// overriding already-set variables.
+func loadEnvFile() error {
+	data, err := os.ReadFile(EnvFileName)
 	if err != nil {
-		return fmt.Errorf("failed to open config file: %w", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read %s: %w", EnvFileName, err)
 	}
-	defer f.Close()
 
-	if err := toml.NewEncoder(f).Encode(cfg); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.Trim(strings.TrimSpace(val), `"'`)
+		if _, exists := os.LookupEnv(key); !exists {
+			_ = os.Setenv(key, val)
+		}
 	}
+	return nil
+}
+
+// SetEnvVar writes or updates a variable in the local .env file.
+func SetEnvVar(key, value string) error {
+	lines := []string{}
+	if data, err := os.ReadFile(EnvFileName); err == nil {
+		lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	}
+
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		k, _, ok := strings.Cut(trimmed, "=")
+		if ok && strings.TrimSpace(k) == key {
+			lines[i] = key + "=" + value
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, key+"="+value)
+	}
+
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(EnvFileName, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("failed to write %s: %w", EnvFileName, err)
+	}
+	_ = os.Setenv(key, value)
+	return nil
+}
+
+// UnsetEnvVar removes a variable from the local .env file.
+func UnsetEnvVar(key string) error {
+	data, err := os.ReadFile(EnvFileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read %s: %w", EnvFileName, err)
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		k, _, ok := strings.Cut(trimmed, "=")
+		if ok && strings.TrimSpace(k) == key {
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	if err := os.WriteFile(EnvFileName, []byte(strings.Join(kept, "\n")+"\n"), 0o600); err != nil {
+		return fmt.Errorf("failed to write %s: %w", EnvFileName, err)
+	}
+	_ = os.Unsetenv(key)
 	return nil
 }

@@ -3,7 +3,6 @@ module github.com/metruzanca/disc
 go 1.25.0
 
 require (
-	github.com/BurntSushi/toml v1.6.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/fatih/color v1.19.0
 	github.com/spf13/cobra v1.10.2

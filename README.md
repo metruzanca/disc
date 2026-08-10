@@ -41,28 +41,38 @@ go install .
 
 ## Configuration
 
+`disc` is configured entirely through environment variables, optionally
+loaded from a local `.env` file in the directory you run it from. There is
+no global config file, so you can run multiple bots with the same `disc`
+binary without them stepping on each other — each instance has its own
+`.env` (or its own environment).
+
+### Environment variables
+
+- `DISCORD_TOKEN` — bot token (required)
+- `DISCORD_SERVER_ID` — default server ID
+
+At startup, `disc` reads a `.env` file in the current directory (if present)
+without overriding variables already set in your shell.
+
 ### First-time setup
 
 ```bash
 disc init
 ```
 
-Prompts for your bot token and saves it to `~/.config/disc/disc.toml`. It validates the token and prints an invite link to add the bot to a server.
+Prompts for your bot token, validates it, and writes `DISCORD_TOKEN=...` to
+a `.env` file in the current directory. It then prints an invite link to add
+the bot to a server.
 
 ### Default server
 
 ```bash
-disc config set-server <server-id>
-disc config clear-server
+disc config set-server <server-id>   # writes DISCORD_SERVER_ID to .env
+disc config clear-server             # removes DISCORD_SERVER_ID from .env
 ```
 
-### Configuration file
-
-`disc` reads its token and default server **only** from the config file
-(`~/.config/disc/disc.toml`). There are no environment variables involved.
-This keeps every instance local and self-contained, so you can run multiple
-bots with the same `disc` binary without them stepping on each other — each
-instance uses its own config file.
+The `.env` file is git-ignored so your token never gets committed.
 
 ## Usage
 
@@ -139,17 +149,18 @@ All role commands accept `--server <server-id>`. Mutating commands ask for confi
 Commands that operate on a server resolve the server ID in this order:
 
 1. The `--server` flag
-2. The `server_id` value in the config file
+2. The `DISCORD_SERVER_ID` environment variable (which may come from `.env`)
 
 ## Confirmation prompts
 
 Every mutating command (create, update, delete, move) prompts for confirmation before making changes. Pass `-y` / `--yes` to skip the prompt — useful for scripting.
 
-## Config file
+## Config
 
-- Location: `~/.config/disc/disc.toml`
-- Format: TOML with `token` and `server_id` keys
-- Permissions: created with `0600` so the token is not world-readable
+- Source: `DISCORD_TOKEN` and `DISCORD_SERVER_ID` environment variables
+- `.env` file: a local `.env` in the working directory is loaded at startup if present (existing env vars win)
+- `disc init` and `disc config set-server` write to `.env`
+- `.env` is git-ignored
 
 ## Related projects
 

@@ -17,7 +17,7 @@ var initCmd = &cobra.Command{
 	Short: "Set up disc with your bot token",
 	Long: `Initialize disc by providing your Discord bot token.
 
-The token will be saved to the disc config file for future use.`,
+The token will be saved to the local .env file for future use.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		token, err := readToken()
@@ -39,16 +39,11 @@ The token will be saved to the disc config file for future use.`,
 			return err
 		}
 
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cfg.Token = strings.TrimSpace(token)
-		if err := config.Save(cfg); err != nil {
+		if err := config.SetEnvVar(config.TokenEnv, strings.TrimSpace(token)); err != nil {
 			return err
 		}
 
-		util.Green.Printf("Token saved.\n")
+		util.Green.Printf("Token saved to %s.\n", config.EnvFileName)
 		fmt.Println()
 		fmt.Println("Invite your bot to a server using this link:")
 		fmt.Println()

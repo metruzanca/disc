@@ -18,15 +18,11 @@ var configSetServerCmd = &cobra.Command{
 	Short: "Set the default server",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cfg.ServerID = args[0]
-		if err := config.Save(cfg); err != nil {
+		if err := config.SetEnvVar(config.ServerIDEnv, args[0]); err != nil {
 			return err
 		}
 
+		cfg, _ := config.Load()
 		name := args[0]
 		if token := cfg.Token; token != "" {
 			client, err := discord.New(token)
@@ -50,12 +46,7 @@ var configClearServerCmd = &cobra.Command{
 	Short: "Clear the default server",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cfg.ServerID = ""
-		if err := config.Save(cfg); err != nil {
+		if err := config.UnsetEnvVar(config.ServerIDEnv); err != nil {
 			return err
 		}
 		util.Green.Println("Default server cleared.")
