@@ -28,7 +28,7 @@ var configSetServerCmd = &cobra.Command{
 		}
 
 		name := args[0]
-		if token := cfg.EffectiveToken(); token != "" {
+		if token := cfg.Token; token != "" {
 			client, err := discord.New(token)
 			if err == nil {
 				if err := client.WaitReady(); err == nil {

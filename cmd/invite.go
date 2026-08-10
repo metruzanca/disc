@@ -18,7 +18,7 @@ var inviteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		token := cfg.EffectiveToken()
+		token := cfg.Token
 		if token == "" {
 			return fmt.Errorf("no bot token configured; run disc init")
 		}

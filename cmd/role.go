@@ -348,19 +348,19 @@ func init() {
 	roleCmd.AddCommand(roleUpdateCmd)
 	roleCmd.AddCommand(roleDeleteCmd)
 
-	roleListCmd.Flags().StringVar(&roleListFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	roleListCmd.Flags().StringVar(&roleListFlags.server, "server", "", "Server ID (defaults to configured server)")
 
-	roleShowCmd.Flags().StringVar(&roleShowFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	roleShowCmd.Flags().StringVar(&roleShowFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleShowCmd.Flags().StringVar(&roleShowFlags.role, "role", "", "Role ID to show details for (required)")
 
-	roleAddCmd.Flags().StringVar(&roleAddFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	roleAddCmd.Flags().StringVar(&roleAddFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleAddCmd.Flags().StringVar(&roleAddFlags.name, "name", "", "Role name (required)")
 	roleAddCmd.Flags().StringVar(&roleAddFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
 	roleAddCmd.Flags().BoolVar(&roleAddFlags.hoist, "hoist", false, "Display role separately in member list")
 	roleAddCmd.Flags().BoolVar(&roleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
 	roleAddCmd.Flags().BoolVarP(&roleAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.role, "role", "", "Role ID to update (required)")
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.name, "name", "", "New role name")
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
@@ -368,7 +368,7 @@ func init() {
 	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
 	roleUpdateCmd.Flags().BoolVarP(&roleUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
-	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.role, "role", "", "Role ID to delete (required)")
 	roleDeleteCmd.Flags().BoolVarP(&roleDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 }

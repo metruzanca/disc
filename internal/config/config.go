@@ -9,13 +9,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const (
-	// DefaultServerIDEnv is the env var for the default server.
-	DefaultServerIDEnv = "DISCORD_SERVER_ID"
-	// TokenEnv is the env var for the bot token.
-	TokenEnv = "DISCORD_TOKEN"
-)
-
 // Config is the persisted disc configuration.
 type Config struct {
 	Token    string `toml:"token"`
@@ -66,20 +59,4 @@ func Save(cfg Config) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 	return nil
-}
-
-// EffectiveToken returns the bot token, preferring the env var over the config file.
-func (c Config) EffectiveToken() string {
-	if v := os.Getenv(TokenEnv); v != "" {
-		return v
-	}
-	return c.Token
-}
-
-// EffectiveServerID returns the server ID, preferring the env over config.
-func (c Config) EffectiveServerID() string {
-	if v := os.Getenv(DefaultServerIDEnv); v != "" {
-		return v
-	}
-	return c.ServerID
 }

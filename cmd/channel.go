@@ -323,9 +323,9 @@ func init() {
 	channelCmd.AddCommand(channelDeleteCmd)
 	channelCmd.AddCommand(channelMoveCmd)
 
-	channelListCmd.Flags().StringVar(&serverFlag, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	channelListCmd.Flags().StringVar(&serverFlag, "server", "", "Server ID (defaults to configured server)")
 
-	channelAddCmd.Flags().StringVar(&channelAddFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	channelAddCmd.Flags().StringVar(&channelAddFlags.server, "server", "", "Server ID (defaults to configured server)")
 	channelAddCmd.Flags().StringVar(&channelAddFlags.name, "name", "", "Channel name (required)")
 	channelAddCmd.Flags().StringVar(&channelAddFlags.typ, "type", "text", "Channel type: text or voice")
 	channelAddCmd.Flags().StringVar(&channelAddFlags.category, "category", "", "Category ID to place channel under")
@@ -341,7 +341,7 @@ func init() {
 	channelDeleteCmd.Flags().StringVar(&channelDeleteFlags.channel, "channel", "", "Channel ID to delete (required)")
 	channelDeleteCmd.Flags().BoolVarP(&channelDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
-	channelMoveCmd.Flags().StringVar(&channelMoveFlags.server, "server", "", "Server ID (or set DISCORD_SERVER_ID)")
+	channelMoveCmd.Flags().StringVar(&channelMoveFlags.server, "server", "", "Server ID (defaults to configured server)")
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.channel, "channel", "", "Channel ID to move (required)")
 	channelMoveCmd.Flags().IntVar(&channelMoveFlags.position, "position", -1, "New position within the category (0-indexed)")
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.category, "category", "", "Category ID to move channel to (use 'none' to remove from category)")

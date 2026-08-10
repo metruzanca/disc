@@ -7,8 +7,8 @@ import (
 	"github.com/metruzanca/disc/internal/discord"
 )
 
-// resolveServerID returns the effective server ID, preferring the flag
-// value over env/config.
+// resolveServerID returns the server ID, preferring the flag value
+// over the configured default.
 func resolveServerID(flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
@@ -17,10 +17,10 @@ func resolveServerID(flagValue string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if id := cfg.EffectiveServerID(); id != "" {
+	if id := cfg.ServerID; id != "" {
 		return id, nil
 	}
-	return "", fmt.Errorf("no server ID set; pass --server or set DISCORD_SERVER_ID")
+	return "", fmt.Errorf("no server ID set; pass --server or run disc config set-server")
 }
 
 // newClient creates a connected client from the configured token.
@@ -29,7 +29,7 @@ func newClient() (*discord.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	token := cfg.EffectiveToken()
+	token := cfg.Token
 	if token == "" {
 		return nil, fmt.Errorf("no bot token configured; run disc init")
 	}

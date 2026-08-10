@@ -6,8 +6,7 @@ Reimplement `disc` (github.com/metruzanca/disc) from scratch as a self-owned, re
 ## Tool identity (recovered from binary)
 - Module path: `github.com/metruzanca/disc`
 - Go 1.25, built with `discordgo`, `cobra`/`pflag`, `BurntSushi/toml` (config), `fatih/color` (output), `gorilla/websocket` (via discordgo).
-- Config file: `~/.config/disc/disc.toml` (permissions `0600`) with fields `token`, `server_id`.
-- Env vars: `DISCORD_TOKEN`, `DISCORD_SERVER_ID`.
+- Config file: `~/.config/disc/disc.toml` (permissions `0600`) with fields `token`, `server_id`. No environment variables are used as a source of truth.
 
 ## Project structure
 ```
@@ -79,8 +78,8 @@ require:
 - Flags: `--name`, `--color` (hex), `--hoist`, `--mentionable`, `--role`, `--server`, `-y`. Confirmation prompt.
 
 ## Cross-cutting behavior
-- **Server resolution order:** `--server` flag → `DISCORD_SERVER_ID` env → `server_id` from config.
-- **Token resolution order:** `DISCORD_TOKEN` env → config file token.
+- **Server resolution order:** `--server` flag → `server_id` from config.
+- **Token source:** config file only (no env var fallback).
 - **Confirmation prompts** on all mutating commands unless `-y/--yes`.
 - **Output style:** colorized via `fatih/color`; use "guild" internally (matches Discord API).
 - Config writes use `0600` perms; directory `~/.config/disc/`.
@@ -97,5 +96,6 @@ require:
 
 ## Decisions
 - Config persists as TOML at `~/.config/disc/disc.toml`.
+- Token and default server ID are read **only** from the config file. No environment variables are used as a source of truth, so multiple bots using the same binary stay isolated (each has its own config file).
 - Commands are functionally identical to the original; output fidelity is best-effort.
 - No extra `--json` flag (keep minimal to match original).

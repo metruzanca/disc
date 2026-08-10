@@ -16,7 +16,7 @@ var statusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		token := cfg.EffectiveToken()
+		token := cfg.Token
 		if token == "" {
 			util.Yellow.Println("Status: Not configured")
 			util.Bold.Println("Run disc init to set up your bot token.")
