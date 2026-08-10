@@ -27,7 +27,6 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(inviteCmd)
-	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(channelCmd)
 	rootCmd.AddCommand(roleCmd)
 }

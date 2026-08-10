@@ -10,7 +10,7 @@ Manage Discord servers, channels and roles. Designed for automation and agent-ba
 - **Channel management** — create, update, delete, and move channels
 - **Role management** — create, update, delete, and inspect roles
 - **Automation friendly** — non-interactive via `--yes` for scripted use
-- **Flexible config** — token and server ID from a config file or environment variables
+- **Flexible config** — token and server ID via environment variables or a local `.env` file
 
 ## Requirements
 
@@ -64,13 +64,6 @@ disc init
 Prompts for your bot token, validates it, and writes `DISCORD_TOKEN=...` to
 a `.env` file in the current directory. It then prints an invite link to add
 the bot to a server.
-
-### Default server
-
-```bash
-disc config set-server <server-id>   # writes DISCORD_SERVER_ID to .env
-disc config clear-server             # removes DISCORD_SERVER_ID from .env
-```
 
 The `.env` file is git-ignored so your token never gets committed.
 
@@ -159,7 +152,7 @@ Every mutating command (create, update, delete, move) prompts for confirmation b
 
 - Source: `DISCORD_TOKEN` and `DISCORD_SERVER_ID` environment variables
 - `.env` file: a local `.env` in the working directory is loaded at startup if present (existing env vars win)
-- `disc init` and `disc config set-server` write to `.env`
+- `disc init` writes `DISCORD_TOKEN` to `.env`
 - `.env` is git-ignored
 
 ## Related projects

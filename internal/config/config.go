@@ -95,31 +95,3 @@ func SetEnvVar(key, value string) error {
 	_ = os.Setenv(key, value)
 	return nil
 }
-
-// UnsetEnvVar removes a variable from the local .env file.
-func UnsetEnvVar(key string) error {
-	data, err := os.ReadFile(EnvFileName)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read %s: %w", EnvFileName, err)
-	}
-
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	kept := lines[:0]
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		k, _, ok := strings.Cut(trimmed, "=")
-		if ok && strings.TrimSpace(k) == key {
-			continue
-		}
-		kept = append(kept, line)
-	}
-
-	if err := os.WriteFile(EnvFileName, []byte(strings.Join(kept, "\n")+"\n"), 0o600); err != nil {
-		return fmt.Errorf("failed to write %s: %w", EnvFileName, err)
-	}
-	_ = os.Unsetenv(key)
-	return nil
-}

@@ -7,7 +7,7 @@ Reimplement `disc` (github.com/metruzanca/disc) from scratch as a self-owned, re
 - Module path: `github.com/metruzanca/disc`
 - Go 1.25, built with `discordgo`, `cobra`/`pflag`, `BurntSushi/toml` (config), `fatih/color` (output), `gorilla/websocket` (via discordgo).
 - Config file: none. Configuration comes from `DISCORD_TOKEN` and `DISCORD_SERVER_ID` environment variables, optionally loaded from a local `.env` file. No global config file, so multiple bots using the same binary stay isolated.
-- `disc init` and `disc config set-server` persist values to `.env`.
+- `disc init` persists the token to `.env`.
 
 ## Project structure
 ```
@@ -19,11 +19,10 @@ disc/
 │   ├── init.go
 │   ├── status.go
 │   ├── invite.go
-│   ├── config.go          set-server / clear-server
 │   ├── channel.go         list / add / update / delete / move
 │   └── role.go            list / show / add / update / delete
 ├── internal/
-│   ├── config/config.go   load/save ~/.config/disc/disc.toml
+│   ├── config/config.go   load config from env / .env
 │   ├── discord/client.go  discordgo session wrapper
 │   └── util/prompt.go     confirmation + color helpers
 └── PLAN.md
@@ -43,16 +42,13 @@ require:
 ## Command surface to implement
 
 ### `disc init`
-- Prompt for bot token, save to `~/.config/disc/disc.toml` (`token`), print OAuth2 invite link with `Manage Channels` + `Manage Roles` permissions. Accept token via stdin.
+- Prompt for bot token, save `DISCORD_TOKEN` to `.env`, print OAuth2 invite link with channel/role management permissions. Accept token via stdin.
 
 ### `disc status`
 - If token missing → "Status: Not configured, Run disc init". Else connect via websocket, print "Status: Connected", bot name, and list of servers (id + name) from `State.Guilds`.
 
 ### `disc invite`
 - Print OAuth2 invite link with channel/role management permissions.
-
-### `disc config set-server <id>` / `disc config clear-server`
-- Persist/clear `server_id` in config.
 
 ### `disc channel list`
 - Group channels by category (reproduce "No Category" grouping). For each: name, ID. (Verify: only list channels; the current binary showed text+voice and category labels.)
@@ -97,6 +93,6 @@ require:
 
 ## Decisions
 - Configuration comes from `DISCORD_TOKEN` / `DISCORD_SERVER_ID` env vars, optionally loaded from a local `.env` file. No global config file.
-- `disc init` and `disc config set-server` persist values to `.env`.
+- `disc init` persists the token to `.env`.
 - Commands are functionally identical to the original; output fidelity is best-effort.
 - No extra `--json` flag (keep minimal to match original).
