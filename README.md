@@ -109,6 +109,3 @@ disc channel add --help
 We also publish a full command reference at [docs/commands.md](./docs/commands.md)
 for anyone who prefers to read it from the web.
 
-## Related projects
-
-- [nomad-server](https://github.com/metruzanca/nomad-server) — the Discord bot and Terraform server config this tool supports (channel/role discovery for Terraform imports)
