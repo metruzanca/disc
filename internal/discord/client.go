@@ -13,7 +13,8 @@ const invitePermissions = discordgo.PermissionManageChannels |
 	discordgo.PermissionManageRoles |
 	discordgo.PermissionViewChannel |
 	discordgo.PermissionSendMessages |
-	discordgo.PermissionReadMessageHistory
+	discordgo.PermissionReadMessageHistory |
+	discordgo.PermissionCreateEvents
 
 // Client wraps a discordgo session.
 type Client struct {

@@ -129,6 +129,7 @@ func permissionNames() []struct {
 		{"Manage Webhooks", discordgo.PermissionManageWebhooks},
 		{"Create Invite", discordgo.PermissionCreateInstantInvite},
 		{"Manage Events", discordgo.PermissionManageEvents},
+		{"Create Events", discordgo.PermissionCreateEvents},
 		{"View Channels", discordgo.PermissionViewChannel},
 		{"Send Messages", discordgo.PermissionSendMessages},
 		{"Manage Messages", discordgo.PermissionManageMessages},

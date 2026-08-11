@@ -9,6 +9,7 @@ Manage Discord servers, channels and roles. Designed for automation and agent-ba
 - **Server discovery** — list channels and roles to see the current structure of a server
 - **Channel management** — create, update, delete, and move channels
 - **Role management** — create, update, delete, and inspect roles
+- **Scheduled event management** — create, update, delete, and inspect scheduled events
 - **Automation friendly** — non-interactive via `--yes` for scripted use
 - **Flexible config** — token and server ID via environment variables or a local `.env` file
 
@@ -17,7 +18,7 @@ Manage Discord servers, channels and roles. Designed for automation and agent-ba
 - [Go](https://go.dev/dl/) 1.25+
 - A Discord bot token from the [Discord Developer Portal](https://discord.com/developers/applications)
   - Create an application → open the **Bot** tab → **Reset Token** / **Copy** to get your token
-  - Grant the bot the **Manage Channels**, **Manage Roles**, **View Channels**, **Send Messages**, and **Read Message History** permissions when inviting it
+  - Grant the bot the **Manage Channels**, **Manage Roles**, **View Channels**, **Send Messages**, **Read Message History**, and **Create Events** permissions when inviting it
 
 ## Installation
 
@@ -136,6 +137,33 @@ disc role delete --role 987654321
 ```
 
 All role commands accept `--server <server-id>`. Mutating commands ask for confirmation unless `--yes` is given.
+
+### Scheduled events
+
+```bash
+# List scheduled events (add --active to only show scheduled/active)
+disc event list
+disc event list --active
+
+# Show event details
+disc event show --event 987654321
+
+# Create a voice event in a channel
+disc event add --name "Coffee Break" --start "2026-01-15 19:00" --channel 123456789
+
+# Create an external event (requires --location and --end)
+disc event add --name "Meetup" --type external --location "Local Cafe" \
+  --start "2026-01-15 19:00" --end "2026-01-15 21:00"
+
+# Update an event (name, description, time, type, or status)
+disc event update --event 987654321 --name "New Name"
+disc event update --event 987654321 --status active
+
+# Delete an event
+disc event delete --event 987654321
+```
+
+Event types are `voice` (default), `stage`, and `external`. External events require a `--location` and an `--end` time. Use `--status` on update to start, end, or cancel an event (`scheduled`, `active`, `completed`, `canceled`). All event commands accept `--server <server-id>`; mutating commands ask for confirmation unless `--yes` is given.
 
 ## Server ID resolution
 
