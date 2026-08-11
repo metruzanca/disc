@@ -24,11 +24,7 @@ var roleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List roles in a server",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID, err := resolveServerID(roleListFlags.server)
-		if err != nil {
-			return err
-		}
-		client, err := newClient()
+		client, serverID, err := newClientAndServer(roleListFlags.server)
 		if err != nil {
 			return err
 		}
@@ -71,11 +67,7 @@ var roleShowCmd = &cobra.Command{
 		if roleShowFlags.role == "" {
 			return fmt.Errorf("--role is required")
 		}
-		serverID, err := resolveServerID(roleShowFlags.server)
-		if err != nil {
-			return err
-		}
-		client, err := newClient()
+		client, serverID, err := newClientAndServer(roleShowFlags.server)
 		if err != nil {
 			return err
 		}
@@ -185,10 +177,11 @@ Examples:
   disc role add --server 123456789 --name "VIP" --color FF0000 --hoist
   disc role add --server 123456789 --name "Helper" --mentionable`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID, err := resolveServerID(roleAddFlags.server)
+		client, serverID, err := newClientAndServer(roleAddFlags.server)
 		if err != nil {
 			return err
 		}
+		defer client.Close()
 		if roleAddFlags.name == "" {
 			return fmt.Errorf("--name is required")
 		}
@@ -197,12 +190,6 @@ Examples:
 			util.Yellow.Println("Aborted.")
 			return nil
 		}
-
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		defer client.Close()
 
 		params := &discordgo.RoleParams{
 			Name:        roleAddFlags.name,
@@ -251,21 +238,16 @@ Examples:
 		if roleUpdateFlags.role == "" {
 			return fmt.Errorf("--role is required")
 		}
-		serverID, err := resolveServerID(roleUpdateFlags.server)
+		client, serverID, err := newClientAndServer(roleUpdateFlags.server)
 		if err != nil {
 			return err
 		}
+		defer client.Close()
 
 		if !util.Confirm(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes) {
 			util.Yellow.Println("Aborted.")
 			return nil
 		}
-
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		defer client.Close()
 
 		params := &discordgo.RoleParams{}
 		if roleUpdateFlags.name != "" {
@@ -309,21 +291,16 @@ var roleDeleteCmd = &cobra.Command{
 		if roleDeleteFlags.role == "" {
 			return fmt.Errorf("--role is required")
 		}
-		serverID, err := resolveServerID(roleDeleteFlags.server)
+		client, serverID, err := newClientAndServer(roleDeleteFlags.server)
 		if err != nil {
 			return err
 		}
+		defer client.Close()
 
 		if !util.Confirm(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes) {
 			util.Yellow.Println("Aborted.")
 			return nil
 		}
-
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		defer client.Close()
 
 		if err := client.Session().GuildRoleDelete(serverID, roleDeleteFlags.role); err != nil {
 			return fmt.Errorf("failed to delete role: %w", err)

@@ -19,11 +19,7 @@ var channelListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List channels in a server",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID, err := resolveServerID(serverFlag)
-		if err != nil {
-			return err
-		}
-		client, err := newClient()
+		client, serverID, err := newClientAndServer(serverFlag)
 		if err != nil {
 			return err
 		}
@@ -115,10 +111,11 @@ Examples:
   disc channel add --server 123456789 --name voice-chat --type voice
   disc channel add --server 123456789 --name help --category 987654321`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		serverID, err := resolveServerID(channelAddFlags.server)
+		client, serverID, err := newClientAndServer(channelAddFlags.server)
 		if err != nil {
 			return err
 		}
+		defer client.Close()
 		if channelAddFlags.name == "" {
 			return fmt.Errorf("--name is required")
 		}
@@ -133,12 +130,6 @@ Examples:
 			util.Yellow.Println("Aborted.")
 			return nil
 		}
-
-		client, err := newClient()
-		if err != nil {
-			return err
-		}
-		defer client.Close()
 
 		params := discordgo.GuildChannelCreateData{
 			Name:     channelAddFlags.name,

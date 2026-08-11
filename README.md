@@ -143,6 +143,10 @@ Commands that operate on a server resolve the server ID in this order:
 
 1. The `--server` flag
 2. The `DISCORD_SERVER_ID` environment variable (which may come from `.env`)
+3. The single server the bot is a member of, if it's in exactly one server
+
+If the bot is in more than one server and no explicit server ID is given,
+disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
 
 ## Confirmation prompts
 
