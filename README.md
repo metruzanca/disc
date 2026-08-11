@@ -26,36 +26,15 @@ Manage Discord servers, channels, roles, and scheduled events. Designed for auto
 go install github.com/metruzanca/disc@latest
 ```
 
-Or build from source:
-
-```bash
-git clone <your-repo-url> disc
-cd disc
-go build -o disc .
-```
-
-The binary is placed in the current directory. To install it into your `GOBIN`:
-
-```bash
-go install .
-```
-
 ## Configuration
 
 `disc` is configured entirely through environment variables, optionally
-loaded from a local `.env` file in the directory you run it from. There is
-no global config file, so you can run multiple bots with the same `disc`
-binary without them stepping on each other — each instance has its own
-`.env` (or its own environment).
+loaded from a local `.env` file in the directory you run it from. 
 
 ### Environment variables
 
 - `DISCORD_TOKEN` — bot token (required)
 - `DISCORD_SERVER_ID` — default server ID
-
-At startup, `disc` reads a `.env` file in the current directory (if present)
-without overriding variables already set in your shell. The `.env` file is
-git-ignored so your token never gets committed.
 
 ### First-time setup
 
@@ -95,6 +74,26 @@ disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
 ## Confirmation prompts
 
 Every mutating command (create, update, delete, move) prompts for confirmation before making changes. Pass `-y` / `--yes` to skip the prompt — useful for scripting.
+
+## Exporting and importing
+
+Channels and roles can be snapshotted to JSON and reapplied.
+
+```bash
+# Export the current structure to JSON (channels.json / roles.json by default)
+disc channel export
+disc role export
+
+# Import a definition: a dry run is shown first, then type "apply" to proceed
+disc channel import
+disc role import
+```
+
+Import matches channels and roles by name, so it is **idempotent** — running
+it again produces no changes, and a partial setup is left untouched. Deleting
+resources absent from the file only happens with `--delete-missing`; when it
+does, the dry run warns (in red) that deletion is non-reversible before asking
+you to type `apply`.
 
 ## Documentation
 

@@ -43,12 +43,29 @@ disc channel delete --channel 123456789
 disc channel move --channel 111111111 --position 0
 disc channel move --channel 111111111 --category 222222222
 disc channel move --channel 111111111 --category 222222222 --position 3
+
+# Export the channel structure to JSON (channels.json by default)
+disc channel export
+disc channel export --file channels.json
+
+# Import a channel definition (dry run first; type "apply" to proceed)
+disc channel import
+disc channel import --file channels.json
+# Also delete channels not present in the file (non-reversible)
+disc channel import --file channels.json --delete-missing
 ```
 
 - `disc channel add` — `--name` (required), `--type` (`text` or `voice`, default `text`), `--category`
 - `disc channel update` — `--channel` (required), `--name`, `--topic`, `--category`, `--nsfw`
 - `disc channel delete` — `--channel` (required)
 - `disc channel move` — `--channel` (required), `--position` (0-indexed), `--category` (use `none` to remove from a category)
+- `disc channel export` — `--file` (defaults to `channels.json`)
+- `disc channel import` — `--file` (defaults to `channels.json`), `--delete-missing`, `--yes`
+
+Channels are matched by name on import. Channels already present with the
+correct settings are left unchanged. System channels (rules, updates, welcome)
+are never deleted. With `--delete-missing`, categories are only removed when
+none of their child channels are being kept.
 
 ## Roles
 
@@ -71,11 +88,27 @@ disc role update --role 987654321 --hoist=false
 
 # Delete a role
 disc role delete --role 987654321
+
+# Export roles to JSON (roles.json by default)
+disc role export
+disc role export --file roles.json
+
+# Import a role definition (dry run first; type "apply" to proceed)
+disc role import
+disc role import --file roles.json
+# Also delete roles not present in the file (non-reversible)
+disc role import --file roles.json --delete-missing
 ```
 
 - `disc role add` — `--name` (required), `--color` (hex, e.g. `FF0000`), `--hoist`, `--mentionable`
 - `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`
 - `disc role delete` — `--role` (required)
+- `disc role export` — `--file` (defaults to `roles.json`)
+- `disc role import` — `--file` (defaults to `roles.json`), `--delete-missing`, `--yes`
+
+Roles are matched by name on import. Roles already present with the correct
+settings (color, hoist, mentionable, permissions) are left unchanged. Managed
+(integration/bot) roles and `@everyone` are never deleted.
 
 ## Scheduled events
 

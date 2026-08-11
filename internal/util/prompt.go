@@ -32,8 +32,25 @@ func Confirm(prompt string, yes bool) bool {
 		return true
 	}
 	fmt.Printf("%s [y/N] ", prompt)
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
+	line := readLine()
 	line = strings.TrimSpace(strings.ToLower(line))
 	return line == "y" || line == "yes"
+}
+
+// ApplyConfirm requires the user to type the exact keyword (default "apply")
+// before changes are applied. It returns true only when the input matches.
+// If yes is true, it skips the prompt and returns true immediately.
+func ApplyConfirm(prompt string, yes bool) bool {
+	if yes {
+		return true
+	}
+	fmt.Printf("%s ", prompt)
+	line := readLine()
+	return strings.TrimSpace(line) == "apply"
+}
+
+func readLine() string {
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	return strings.TrimRight(line, "\n")
 }
