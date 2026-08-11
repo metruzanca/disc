@@ -98,12 +98,16 @@ Every mutating command (create, update, delete, move) prompts for confirmation b
 
 ## Documentation
 
-For the full command reference (channels, roles, and scheduled events),
-see [docs/commands.md](./docs/commands.md).
+The CLI is designed with a `--help` screen for every subcommand, so the best
+way to understand how to do things is to ask the CLI itself:
 
-This file exists for anyone who wants to read it from the web, but the CLI
-is designed with a `--help` screen for every subcommand, so all you really
-should need is the CLI itself to understand how to do things.
+```bash
+disc --help
+disc channel add --help
+```
+
+We also publish a full command reference at [docs/commands.md](./docs/commands.md)
+for anyone who prefers to read it from the web.
 
 ## Related projects
 
