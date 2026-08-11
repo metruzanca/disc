@@ -44,28 +44,24 @@ disc channel move --channel 111111111 --position 0
 disc channel move --channel 111111111 --category 222222222
 disc channel move --channel 111111111 --category 222222222 --position 3
 
-# Export the channel structure to JSON (channels.json by default)
-disc channel export
-disc channel export --file channels.json
+# Show channel details, including permission overwrites
+disc channel show --channel 123456789
 
-# Import a channel definition (dry run first; type "apply" to proceed)
-disc channel import
-disc channel import --file channels.json
-# Also delete channels not present in the file (non-reversible)
-disc channel import --file channels.json --delete-missing
+# Set permission overwrites (role-based) on create or update
+disc channel add --name general --allow "Moderator:Send Messages"
+disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
 ```
 
-- `disc channel add` — `--name` (required), `--type` (`text` or `voice`, default `text`), `--category`
-- `disc channel update` — `--channel` (required), `--name`, `--topic`, `--category`, `--nsfw`
+- `disc channel add` — `--name` (required), `--type` (`text` or `voice`, default `text`), `--category`, `--allow`, `--deny`
+- `disc channel update` — `--channel` (required), `--name`, `--topic`, `--category`, `--nsfw`, `--allow`, `--deny`
 - `disc channel delete` — `--channel` (required)
 - `disc channel move` — `--channel` (required), `--position` (0-indexed), `--category` (use `none` to remove from a category)
-- `disc channel export` — `--file` (defaults to `channels.json`)
-- `disc channel import` — `--file` (defaults to `channels.json`), `--delete-missing`, `--yes`
+- `disc channel show` — `--channel` (required)
 
-Channels are matched by name on import. Channels already present with the
-correct settings are left unchanged. System channels (rules, updates, welcome)
-are never deleted. With `--delete-missing`, categories are only removed when
-none of their child channels are being kept.
+`--allow` and `--deny` take `Role:Perm,Perm` values and are repeatable; the
+un-provided side of an overwrite is preserved. Member-level overwrites are not
+managed by disc. System channels (rules, updates, welcome) are never deleted by
+`disc config push`.
 
 ## Roles
 
@@ -89,26 +85,69 @@ disc role update --role 987654321 --hoist=false
 # Delete a role
 disc role delete --role 987654321
 
-# Export roles to JSON (roles.json by default)
-disc role export
-disc role export --file roles.json
-
-# Import a role definition (dry run first; type "apply" to proceed)
-disc role import
-disc role import --file roles.json
-# Also delete roles not present in the file (non-reversible)
-disc role import --file roles.json --delete-missing
+# List the exact names to use with --permissions
+disc role perm list
 ```
 
-- `disc role add` — `--name` (required), `--color` (hex, e.g. `FF0000`), `--hoist`, `--mentionable`
-- `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`
+- `disc role add` — `--name` (required), `--color` (hex, e.g. `FF0000`), `--hoist`, `--mentionable`, `--permissions`
+- `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`
 - `disc role delete` — `--role` (required)
-- `disc role export` — `--file` (defaults to `roles.json`)
-- `disc role import` — `--file` (defaults to `roles.json`), `--delete-missing`, `--yes`
+- `disc role perm list` — lists every recognized permission name
 
-Roles are matched by name on import. Roles already present with the correct
-settings (color, hoist, mentionable, permissions) are left unchanged. Managed
-(integration/bot) roles and `@everyone` are never deleted.
+Managed (integration/bot) roles and `@everyone` are never deleted by
+`disc config push`.
+
+## Declarative config
+
+Manage roles and channels as declarative JSON in a single `server.json`
+file instead of applying changes to the server directly.
+
+```bash
+# Snapshot the live server into server.json (roles + channels together)
+disc config pull
+disc config pull --server 123456789
+disc config pull --file server.json
+
+# Edit the config file declaratively (applies on the next push)
+disc config role add --name Moderator --permissions "Kick Members,Ban Members"
+disc config role update --role 987654321 --name "New Name"
+disc config role update --role 987654321 --color 00FF00
+disc config role update --role 987654321 --position 3
+disc config role delete --role 987654321
+disc config channel add --name help --category Staff
+disc config channel update --channel 123456789 --topic "Welcome to the channel"
+disc config channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+disc config channel update --channel 123456789 --no-overwrite Moderator
+disc config channel move --channel 111111111 --position 0
+disc config channel delete --channel 123456789
+
+# Apply the config to the live server (dry run first; type "apply" to proceed)
+disc config push
+disc config push --file server.json
+# Also delete resources not present in the file (non-reversible)
+disc config push --delete-missing
+```
+
+- `disc config pull` — `--server`, `--file` (defaults to `server.json`)
+- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`
+- `disc config role add` — `--name` (required), `--color`, `--hoist`, `--mentionable`, `--permissions`
+- `disc config role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`, `--position`
+- `disc config role delete` — `--role` (required)
+- `disc config channel add` — `--name` (required), `--type`, `--topic`, `--nsfw`, `--category`, `--position`, `--allow`, `--deny`
+- `disc config channel update` — `--channel` (required), `--name`, `--topic`, `--nsfw`, `--category`, `--allow`, `--deny`, `--no-overwrite`
+- `disc config channel delete` — `--channel` (required)
+- `disc config channel move` — `--channel` (required), `--position`, `--category`
+
+`disc config pull` stores each role and channel's server ID, their positions,
+and role-based channel permission overwrites. Edit commands reference resources
+by ID (`--role` / `--channel`), matching the server CLI. Entries added via
+`add` have no ID until they are pushed and pulled. On push, each entry is
+matched to the server by ID when present, otherwise by name, so renames update
+in place and push is idempotent. Roles are reordered to match their configured
+positions. With `--delete-missing`, categories are only removed when none of
+their child channels are being kept, and live role overwrites absent from the
+config are removed (member overwrites are always preserved). Managed roles,
+`@everyone`, and system channels are never deleted.
 
 ## Scheduled events
 

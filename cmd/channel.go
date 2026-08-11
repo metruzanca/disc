@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/metruzanca/disc/internal/util"
@@ -95,11 +93,92 @@ func printChannel(ch *discordgo.Channel) {
 }
 
 var (
+	channelShowFlags = struct {
+		server  string
+		channel string
+	}{}
+)
+
+var channelShowCmd = &cobra.Command{
+	Use:     "show",
+	Short:   "Show channel details",
+	Example: `  disc channel show --server 123456789 --channel 987654321`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if channelShowFlags.channel == "" {
+			return fmt.Errorf("--channel is required")
+		}
+		client, serverID, err := newClientAndServer(channelShowFlags.server)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+
+		ch, err := client.Session().Channel(channelShowFlags.channel)
+		if err != nil {
+			return fmt.Errorf("failed to load channel: %w", err)
+		}
+
+		util.Bold.Printf("Channel: %s\n", ch.Name)
+		util.Cyan.Printf("ID: %s\n", ch.ID)
+		typeName, _ := channelTypeName(ch.Type)
+		util.Cyan.Printf("Type: %s\n", typeName)
+		util.Cyan.Printf("Position: %d\n", ch.Position)
+		util.Cyan.Printf("NSFW: %t\n", ch.NSFW)
+		util.Cyan.Printf("Topic: %s\n", ch.Topic)
+		parent := "(none)"
+		if ch.ParentID != "" && ch.ParentID != "0" {
+			if p, err := client.Session().Channel(ch.ParentID); err == nil {
+				parent = p.Name
+			} else {
+				parent = ch.ParentID
+			}
+		}
+		util.Cyan.Printf("Category: %s\n", parent)
+
+		roleID := map[string]string{}
+		if roles, err := client.Session().GuildRoles(serverID); err == nil {
+			for _, r := range roles {
+				if r.ID == serverID {
+					roleID[r.ID] = "@everyone"
+				} else {
+					roleID[r.ID] = r.Name
+				}
+			}
+		}
+
+		fmt.Println()
+		util.Bold.Println("Permission overwrites:")
+		if len(ch.PermissionOverwrites) == 0 {
+			util.Dim.Println("  (none)")
+		}
+		for _, ow := range ch.PermissionOverwrites {
+			subject := ow.ID
+			if name, ok := roleID[ow.ID]; ok {
+				subject = name
+			}
+			if ow.Type == discordgo.PermissionOverwriteTypeMember {
+				subject = "member " + ow.ID
+			}
+			util.Cyan.Printf("  %s\n", subject)
+			for _, p := range permNamesFromBits(ow.Allow) {
+				util.Green.Printf("    + %s\n", p)
+			}
+			for _, p := range permNamesFromBits(ow.Deny) {
+				util.Red.Printf("    - %s\n", p)
+			}
+		}
+		return nil
+	},
+}
+
+var (
 	channelAddFlags = struct {
 		server   string
 		name     string
 		typ      string
 		category string
+		allow    []string
+		deny     []string
 		yes      bool
 	}{}
 )
@@ -112,7 +191,8 @@ var channelAddCmd = &cobra.Command{
 Examples:
   disc channel add --server 123456789 --name general
   disc channel add --server 123456789 --name voice-chat --type voice
-  disc channel add --server 123456789 --name help --category 987654321`,
+  disc channel add --server 123456789 --name help --category 987654321
+  disc channel add --server 123456789 --name general --allow "Moderator:Send Messages"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, serverID, err := newClientAndServer(channelAddFlags.server)
 		if err != nil {
@@ -139,6 +219,13 @@ Examples:
 			Type:     chType,
 			ParentID: channelAddFlags.category,
 		}
+		if len(channelAddFlags.allow) > 0 || len(channelAddFlags.deny) > 0 {
+			overwrites, err := buildOverwrites(client.Session(), serverID, channelAddFlags.allow, channelAddFlags.deny)
+			if err != nil {
+				return err
+			}
+			params.PermissionOverwrites = overwrites
+		}
 		ch, err := client.Session().GuildChannelCreateComplex(serverID, params)
 		if err != nil {
 			return fmt.Errorf("failed to create channel: %w", err)
@@ -155,6 +242,8 @@ var (
 		topic    string
 		category string
 		nsfw     bool
+		allow    []string
+		deny     []string
 		yes      bool
 	}{}
 )
@@ -167,13 +256,15 @@ var channelUpdateCmd = &cobra.Command{
 Examples:
   disc channel update --channel 123456789 --name new-name
   disc channel update --channel 123456789 --topic "Welcome to the channel"
-  disc channel update --channel 123456789 --category 987654321`,
+  disc channel update --channel 123456789 --category 987654321
+  disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if channelUpdateFlags.channel == "" {
 			return fmt.Errorf("--channel is required")
 		}
-		if channelUpdateFlags.name == "" && channelUpdateFlags.topic == "" && channelUpdateFlags.category == "" && !cmd.Flags().Changed("nsfw") {
-			return fmt.Errorf("nothing to update; provide --name, --topic, --category, or --nsfw")
+		permChanged := cmd.Flags().Changed("allow") || cmd.Flags().Changed("deny")
+		if channelUpdateFlags.name == "" && channelUpdateFlags.topic == "" && channelUpdateFlags.category == "" && !cmd.Flags().Changed("nsfw") && !permChanged {
+			return fmt.Errorf("nothing to update; provide --name, --topic, --category, --nsfw, --allow, or --deny")
 		}
 
 		summary := fmt.Sprintf("Update channel %s?", channelUpdateFlags.channel)
@@ -200,6 +291,13 @@ Examples:
 		}
 		if cmd.Flags().Changed("nsfw") {
 			edits.NSFW = &channelUpdateFlags.nsfw
+		}
+		if permChanged {
+			overwrites, err := mergeOverwrites(client.Session(), channelUpdateFlags.channel, channelUpdateFlags.allow, channelUpdateFlags.deny)
+			if err != nil {
+				return err
+			}
+			edits.PermissionOverwrites = overwrites
 		}
 
 		ch, err := client.Session().ChannelEdit(channelUpdateFlags.channel, edits)
@@ -308,19 +406,25 @@ Examples:
 	},
 }
 
-// channelExport is one channel in the export/import JSON.
-type channelExport struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Topic    string `json:"topic,omitempty"`
-	NSFW     bool   `json:"nsfw,omitempty"`
-	Parent   string `json:"parent,omitempty"` // parent category name
-	Position int    `json:"position,omitempty"`
+// permissionOverwriteExport is one role-based permission overwrite in the
+// server config JSON. Roles are referenced by name; member overwrites are not
+// managed.
+type permissionOverwriteExport struct {
+	Role  string   `json:"role"`            // role name, or "@everyone"
+	Allow []string `json:"allow,omitempty"` // permission names
+	Deny  []string `json:"deny,omitempty"`  // permission names
 }
 
-// channelsExportFile is the top-level JSON document for channel export/import.
-type channelsExportFile struct {
-	Channels []channelExport `json:"channels"`
+// channelExport is one channel in the server config JSON.
+type channelExport struct {
+	ID         string                      `json:"id,omitempty"`
+	Name       string                      `json:"name"`
+	Type       string                      `json:"type"`
+	Topic      string                      `json:"topic,omitempty"`
+	NSFW       bool                        `json:"nsfw,omitempty"`
+	Parent     string                      `json:"parent,omitempty"` // parent category name
+	Position   int                         `json:"position,omitempty"`
+	Overwrites []permissionOverwriteExport `json:"overwrites,omitempty"`
 }
 
 // channelTypeName returns a canonical JSON name for a channel type. The bool
@@ -364,140 +468,76 @@ func channelTypeFromName(s string) (discordgo.ChannelType, bool) {
 	}
 }
 
-var (
-	channelExportFlags = struct {
-		server string
-		file   string
-	}{}
-)
-
-var channelExportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export channels to JSON",
-	Long: `Export the server's channels as JSON to a file (channels.json by
-default).
-
-Examples:
-  disc channel export
-  disc channel export --file channels.json
-  disc channel export --server 123456789 --file channels.json`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, serverID, err := newClientAndServer(channelExportFlags.server)
-		if err != nil {
-			return err
+// permNamesFromBits returns the display names of all set permission bits.
+func permNamesFromBits(bits int64) []string {
+	var names []string
+	for _, p := range permissionNames() {
+		if bits&p.bit != 0 {
+			names = append(names, p.name)
 		}
-		defer client.Close()
-
-		channels, err := client.Session().GuildChannels(serverID)
-		if err != nil {
-			return fmt.Errorf("failed to list channels: %w", err)
-		}
-
-		byID := map[string]*discordgo.Channel{}
-		for _, ch := range channels {
-			byID[ch.ID] = ch
-		}
-
-		file := channelsExportFile{}
-		for _, ch := range channels {
-			name, ok := channelTypeName(ch.Type)
-			if !ok {
-				continue
-			}
-			ce := channelExport{Name: ch.Name, Type: name, Topic: ch.Topic, NSFW: ch.NSFW, Position: ch.Position}
-			if ch.ParentID != "" && ch.ParentID != "0" {
-				if p := byID[ch.ParentID]; p != nil {
-					ce.Parent = p.Name
-				}
-			}
-			file.Channels = append(file.Channels, ce)
-		}
-
-		data, err := json.MarshalIndent(file, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to encode channels: %w", err)
-		}
-
-		out := channelExportFlags.file
-		if out == "" {
-			out = "channels.json"
-		}
-		if err := os.WriteFile(out, append(data, '\n'), 0o644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", out, err)
-		}
-		util.Green.Printf("Exported channels to %s\n", out)
-		return nil
-	},
+	}
+	return names
 }
 
-var (
-	channelImportFlags = struct {
-		server        string
-		file          string
-		deleteMissing bool
-		yes           bool
-	}{}
-)
+// exportChannels converts the server's live channels into config entries,
+// skipping channel kinds that are not managed (threads, etc.). Each entry
+// carries its server ID, its parent category name, and role-based permission
+// overwrites. Member overwrites are not managed and are skipped.
+func exportChannels(s *discordgo.Session, serverID string) ([]channelExport, error) {
+	channels, err := s.GuildChannels(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list channels: %w", err)
+	}
 
-var channelImportCmd = &cobra.Command{
-	Use:   "import",
-	Short: "Import channels from JSON",
-	Long: `Apply a JSON channel definition to the server, matching channels by name.
-Reads channels.json by default.
+	byID := map[string]*discordgo.Channel{}
+	for _, ch := range channels {
+		byID[ch.ID] = ch
+	}
 
-Channels already present with the correct settings are left unchanged. Pass
---delete-missing to also delete channels on the server that are not in the
-file (a non-reversible action). A dry run is shown first; type "apply" to
-proceed.
-
-Examples:
-  disc channel import
-  disc channel import --file channels.json
-  disc channel import --file channels.json --delete-missing`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		file := channelImportFlags.file
-		if file == "" {
-			file = "channels.json"
-		}
-		var f channelsExportFile
-		if err := readJSONFile(file, &f); err != nil {
-			return err
-		}
-
-		client, serverID, err := newClientAndServer(channelImportFlags.server)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		guild, err := client.Session().Guild(serverID)
-		if err != nil {
-			return fmt.Errorf("failed to load server: %w", err)
-		}
-
-		changes, ops, err := planChannelImport(client.Session(), guild, f, channelImportFlags.deleteMissing)
-		if err != nil {
-			return err
-		}
-		abs, err := filepath.Abs(file)
-		if err != nil {
-			abs = file
-		}
-		if !applyPlan(abs, changes, channelImportFlags.yes) {
-			util.Yellow.Println("Aborted.")
-			return nil
-		}
-		for _, op := range ops {
-			if err := op(); err != nil {
-				return err
+	roleNameByID := map[string]string{"@everyone": ""}
+	if roles, err := s.GuildRoles(serverID); err == nil {
+		for _, r := range roles {
+			if r.ID == serverID {
+				roleNameByID[r.ID] = "@everyone"
+			} else {
+				roleNameByID[r.ID] = r.Name
 			}
 		}
-		return nil
-	},
+	}
+
+	var out []channelExport
+	for _, ch := range channels {
+		name, ok := channelTypeName(ch.Type)
+		if !ok {
+			continue
+		}
+		ce := channelExport{ID: ch.ID, Name: ch.Name, Type: name, Topic: ch.Topic, NSFW: ch.NSFW, Position: ch.Position}
+		if ch.ParentID != "" && ch.ParentID != "0" {
+			if p := byID[ch.ParentID]; p != nil {
+				ce.Parent = p.Name
+			}
+		}
+		for _, ow := range ch.PermissionOverwrites {
+			if ow.Type != discordgo.PermissionOverwriteTypeRole {
+				continue
+			}
+			roleName, ok := roleNameByID[ow.ID]
+			if !ok || roleName == "" {
+				continue
+			}
+			ce.Overwrites = append(ce.Overwrites, permissionOverwriteExport{
+				Role:  roleName,
+				Allow: permNamesFromBits(ow.Allow),
+				Deny:  permNamesFromBits(ow.Deny),
+			})
+		}
+		out = append(out, ce)
+	}
+	return out, nil
 }
 
 // isSystemChannel reports whether a channel is reserved by the guild so it is
-// never deleted by an import.
+// never deleted by a push.
 func isSystemChannel(guild *discordgo.Guild, ch *discordgo.Channel) bool {
 	switch ch.ID {
 	case guild.SystemChannelID, guild.RulesChannelID, guild.PublicUpdatesChannelID, guild.AfkChannelID:
@@ -506,34 +546,46 @@ func isSystemChannel(guild *discordgo.Guild, ch *discordgo.Channel) bool {
 	return false
 }
 
-// planChannelImport diffs the desired file against the live server state and
-// returns the display plan plus the ordered operations to execute.
-func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channelsExportFile, deleteMissing bool) ([]planAction, []func() error, error) {
+// planChannelImport diffs the desired channels against the live server state
+// and returns the display plan plus the ordered operations to execute. Each
+// desired channel is matched to a live channel by ID when it carries one,
+// falling back to name for entries without an ID. roleIDByName maps role names
+// to IDs (including "@everyone") and is updated as roles are created during the
+// push so channel permission overwrites can resolve new roles.
+func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []channelExport, roleIDByName map[string]string, deleteMissing bool) ([]planAction, []func() error, error) {
 	live, err := s.GuildChannels(guild.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to list channels: %w", err)
 	}
 
+	existingCatByID := map[string]*discordgo.Channel{}
 	existingCatByName := map[string]*discordgo.Channel{}
+	existingChByID := map[string]*discordgo.Channel{}
 	existingChByName := map[string]*discordgo.Channel{}
 	for _, ch := range live {
 		if ch.Type == discordgo.ChannelTypeGuildCategory {
+			existingCatByID[ch.ID] = ch
 			existingCatByName[ch.Name] = ch
 		} else {
+			existingChByID[ch.ID] = ch
 			existingChByName[ch.Name] = ch
 		}
 	}
 
 	desiredCatNames := map[string]bool{}
 	desiredChNames := map[string]bool{}
+	desiredChIDs := map[string]bool{}
 	var desiredCats, desiredChs []channelExport
-	for _, ce := range file.Channels {
+	for _, ce := range desired {
 		typ, ok := channelTypeFromName(ce.Type)
 		if !ok {
 			return nil, nil, fmt.Errorf("unsupported channel type '%s' for channel '%s'", ce.Type, ce.Name)
 		}
 		if ce.Name == "" {
 			return nil, nil, fmt.Errorf("channel entry is missing a name")
+		}
+		if ce.ID != "" {
+			desiredChIDs[ce.ID] = true
 		}
 		if typ == discordgo.ChannelTypeGuildCategory {
 			desiredCatNames[ce.Name] = true
@@ -557,18 +609,31 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channe
 	// 1. Create / update categories.
 	for _, dc := range desiredCats {
 		dc := dc
-		if ec, exists := existingCatByName[dc.Name]; exists {
-			if ec.Topic != dc.Topic || ec.NSFW != dc.NSFW {
+		var ec *discordgo.Channel
+		if dc.ID != "" {
+			ec = existingCatByID[dc.ID]
+		}
+		if ec == nil {
+			ec = existingCatByName[dc.Name]
+		}
+		if ec != nil {
+			resolved := resolveOverwrites(ec.PermissionOverwrites, dc.Overwrites, roleIDByName, deleteMissing)
+			if ec.Topic != dc.Topic || ec.NSFW != dc.NSFW || dc.Position != ec.Position || !overwritesEqual(ec.PermissionOverwrites, resolved) {
+				ec := ec
 				changes = append(changes, planAction{"update", fmt.Sprintf("category '%s'", dc.Name)})
 				ops = append(ops, func() error {
-					_, err := editChannel(s, ec.ID, &discordgo.ChannelEdit{Topic: dc.Topic, NSFW: &dc.NSFW})
+					edit := &discordgo.ChannelEdit{Topic: dc.Topic, NSFW: &dc.NSFW, Position: &dc.Position}
+					edit.PermissionOverwrites = resolveOverwrites(ec.PermissionOverwrites, dc.Overwrites, roleIDByName, deleteMissing)
+					_, err := editChannel(s, ec.ID, edit)
 					return err
 				})
 			}
 		} else {
 			changes = append(changes, planAction{"create", fmt.Sprintf("category '%s'", dc.Name)})
 			ops = append(ops, func() error {
-				ch, err := createChannel(s, guild.ID, discordgo.GuildChannelCreateData{Name: dc.Name, Type: discordgo.ChannelTypeGuildCategory, Topic: dc.Topic, NSFW: dc.NSFW})
+				data := discordgo.GuildChannelCreateData{Name: dc.Name, Type: discordgo.ChannelTypeGuildCategory, Topic: dc.Topic, NSFW: dc.NSFW, Position: dc.Position}
+				data.PermissionOverwrites = resolveOverwrites(nil, dc.Overwrites, roleIDByName, deleteMissing)
+				ch, err := createChannel(s, guild.ID, data)
 				if err != nil {
 					return err
 				}
@@ -583,11 +648,21 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channe
 		dc := dc
 		typ, _ := channelTypeFromName(dc.Type)
 		parentID := resolveParentID(dc.Parent, liveCatID)
-		if ec, exists := existingChByName[dc.Name]; exists {
-			if channelNeedsUpdate(ec, typ, dc, parentID) {
+		var ec *discordgo.Channel
+		if dc.ID != "" {
+			ec = existingChByID[dc.ID]
+		}
+		if ec == nil {
+			ec = existingChByName[dc.Name]
+		}
+		if ec != nil {
+			resolved := resolveOverwrites(ec.PermissionOverwrites, dc.Overwrites, roleIDByName, deleteMissing)
+			if channelNeedsUpdate(ec, typ, dc, parentID) || dc.Position != ec.Position || !overwritesEqual(ec.PermissionOverwrites, resolved) {
+				ec := ec
 				changes = append(changes, planAction{"update", fmt.Sprintf("channel '%s'", dc.Name)})
 				ops = append(ops, func() error {
-					edit := &discordgo.ChannelEdit{Name: dc.Name, Topic: dc.Topic, NSFW: &dc.NSFW, ParentID: parentID}
+					edit := &discordgo.ChannelEdit{Name: dc.Name, Topic: dc.Topic, NSFW: &dc.NSFW, ParentID: parentID, Position: &dc.Position}
+					edit.PermissionOverwrites = resolveOverwrites(ec.PermissionOverwrites, dc.Overwrites, roleIDByName, deleteMissing)
 					_, err := editChannel(s, ec.ID, edit)
 					return err
 				})
@@ -595,7 +670,9 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channe
 		} else {
 			changes = append(changes, planAction{"create", fmt.Sprintf("channel '%s'", dc.Name)})
 			ops = append(ops, func() error {
-				_, err := createChannel(s, guild.ID, discordgo.GuildChannelCreateData{Name: dc.Name, Type: typ, Topic: dc.Topic, NSFW: dc.NSFW, ParentID: parentID})
+				data := discordgo.GuildChannelCreateData{Name: dc.Name, Type: typ, Topic: dc.Topic, NSFW: dc.NSFW, ParentID: parentID, Position: dc.Position}
+				data.PermissionOverwrites = resolveOverwrites(nil, dc.Overwrites, roleIDByName, deleteMissing)
+				_, err := createChannel(s, guild.ID, data)
 				return err
 			})
 		}
@@ -606,7 +683,7 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channe
 		channelDeleteIDs := map[string]bool{}
 		var deleteChIDs []string
 		for name, ec := range existingChByName {
-			if desiredChNames[name] || isSystemChannel(guild, ec) {
+			if desiredChNames[name] || desiredChIDs[ec.ID] || isSystemChannel(guild, ec) {
 				continue
 			}
 			channelDeleteIDs[ec.ID] = true
@@ -621,7 +698,7 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, file channe
 		// 4. Delete categories not in the file, only if none of their children
 		// are being kept (deleting a category cascades to its children).
 		for name, ec := range existingCatByName {
-			if desiredCatNames[name] {
+			if desiredCatNames[name] || desiredChIDs[ec.ID] {
 				continue
 			}
 			hasKeptChild := false
@@ -654,6 +731,64 @@ func channelNeedsUpdate(ec *discordgo.Channel, wantType discordgo.ChannelType, w
 		ec.Topic != want.Topic ||
 		ec.NSFW != want.NSFW ||
 		existingParent != wantParentID
+}
+
+// resolveOverwrites computes the final permission overwrites for a channel
+// from the desired config overwrites and the live overwrites. Member
+// overwrites are always preserved. Live role overwrites absent from the config
+// are kept unless deleteMissing. roleIDByName maps role names to IDs
+// (including "@everyone"); roles that cannot be resolved yet are skipped.
+func resolveOverwrites(live []*discordgo.PermissionOverwrite, desired []permissionOverwriteExport, roleIDByName map[string]string, deleteMissing bool) []*discordgo.PermissionOverwrite {
+	desiredByID := map[string]*discordgo.PermissionOverwrite{}
+	var ordered []*discordgo.PermissionOverwrite
+	for _, d := range desired {
+		id, ok := roleIDByName[d.Role]
+		if !ok {
+			continue
+		}
+		ow := &discordgo.PermissionOverwrite{ID: id, Type: discordgo.PermissionOverwriteTypeRole, Allow: permBitsFor(d.Allow), Deny: permBitsFor(d.Deny)}
+		if _, exists := desiredByID[id]; !exists {
+			ordered = append(ordered, ow)
+		}
+		desiredByID[id] = ow
+	}
+
+	var out []*discordgo.PermissionOverwrite
+	for _, ow := range live {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember {
+			out = append(out, ow)
+			continue
+		}
+		if desiredByID[ow.ID] == nil && !deleteMissing {
+			out = append(out, ow)
+		}
+	}
+	return append(out, ordered...)
+}
+
+// overwritesEqual reports whether two permission overwrite slices match
+// (order-insensitive), ignoring overwrites for roles that cannot be resolved.
+func overwritesEqual(a, b []*discordgo.PermissionOverwrite) bool {
+	key := func(ow *discordgo.PermissionOverwrite) string {
+		return fmt.Sprintf("%s:%d:%d:%d", ow.ID, ow.Type, ow.Allow, ow.Deny)
+	}
+	count := func(list []*discordgo.PermissionOverwrite) map[string]int {
+		m := map[string]int{}
+		for _, ow := range list {
+			m[key(ow)]++
+		}
+		return m
+	}
+	ma, mb := count(a), count(b)
+	if len(ma) != len(mb) {
+		return false
+	}
+	for k, v := range ma {
+		if mb[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveParentID(parentName string, liveCatID map[string]string) string {
@@ -689,6 +824,180 @@ func deleteChannel(s *discordgo.Session, id string) error {
 	return nil
 }
 
+// permTarget holds the allow/deny sets being applied to a single role, plus
+// which side the caller actually provided (so the un-provided side can be
+// preserved on an existing overwrite).
+type permTarget struct {
+	allow        []string
+	deny         []string
+	allowChanged bool
+	denyChanged  bool
+}
+
+// collectPermTargets merges repeated --allow/--deny values (each "Role:Perm,Perm")
+// into a per-role allow/deny map.
+func collectPermTargets(allows, denies []string) (map[string]*permTarget, error) {
+	targets := map[string]*permTarget{}
+	add := func(entries []string, isAllow bool) error {
+		for _, e := range entries {
+			role, permStr, ok := strings.Cut(e, ":")
+			if !ok {
+				return fmt.Errorf("expected 'Role:Perm,Perm' but got '%s'", e)
+			}
+			role = strings.TrimSpace(role)
+			if role == "" {
+				return fmt.Errorf("missing role in '%s'", e)
+			}
+			perms, err := splitPermissions(permStr)
+			if err != nil {
+				return fmt.Errorf("role '%s': %w", role, err)
+			}
+			t := targets[role]
+			if t == nil {
+				t = &permTarget{}
+				targets[role] = t
+			}
+			if isAllow {
+				t.allow = append(t.allow, perms...)
+				t.allowChanged = true
+			} else {
+				t.deny = append(t.deny, perms...)
+				t.denyChanged = true
+			}
+		}
+		return nil
+	}
+	if err := add(allows, true); err != nil {
+		return nil, err
+	}
+	if err := add(denies, false); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// permBitsFor converts permission names to a bitmask.
+func permBitsFor(names []string) int64 {
+	permBits := permissionBitsByName()
+	var bits int64
+	for _, n := range names {
+		if b, ok := permBits[n]; ok {
+			bits |= b
+		}
+	}
+	return bits
+}
+
+// roleIDByName maps role names to IDs, with "@everyone" mapping to the guild ID.
+func roleIDByName(s *discordgo.Session, serverID string) (map[string]string, error) {
+	roles, err := s.GuildRoles(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list roles: %w", err)
+	}
+	m := map[string]string{}
+	for _, r := range roles {
+		if r.ID == serverID {
+			m["@everyone"] = r.ID
+		} else {
+			m[r.Name] = r.ID
+		}
+	}
+	return m, nil
+}
+
+// overwritesForTargets resolves targeted roles to IDs and returns the
+// permission overwrites for them.
+func overwritesForTargets(s *discordgo.Session, serverID string, targets map[string]*permTarget) ([]*discordgo.PermissionOverwrite, error) {
+	roleID, err := roleIDByName(s, serverID)
+	if err != nil {
+		return nil, err
+	}
+	var out []*discordgo.PermissionOverwrite
+	for role, t := range targets {
+		id, ok := roleID[role]
+		if !ok {
+			return nil, fmt.Errorf("role '%s' not found in server", role)
+		}
+		out = append(out, &discordgo.PermissionOverwrite{
+			ID:    id,
+			Type:  discordgo.PermissionOverwriteTypeRole,
+			Allow: permBitsFor(t.allow),
+			Deny:  permBitsFor(t.deny),
+		})
+	}
+	return out, nil
+}
+
+// buildOverwrites builds permission overwrites from --allow/--deny flags for a
+// new channel (no existing overwrites to preserve).
+func buildOverwrites(s *discordgo.Session, serverID string, allows, denies []string) ([]*discordgo.PermissionOverwrite, error) {
+	targets, err := collectPermTargets(allows, denies)
+	if err != nil {
+		return nil, err
+	}
+	return overwritesForTargets(s, serverID, targets)
+}
+
+// mergeOverwrites applies --allow/--deny flags to an existing channel's
+// overwrites, preserving member overwrites, untouched role overwrites, and the
+// un-provided side of any targeted role overwrite.
+func mergeOverwrites(s *discordgo.Session, channelID string, allows, denies []string) ([]*discordgo.PermissionOverwrite, error) {
+	targets, err := collectPermTargets(allows, denies)
+	if err != nil {
+		return nil, err
+	}
+
+	ch, err := s.Channel(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load channel: %w", err)
+	}
+	roleID, err := roleIDByName(s, ch.GuildID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve targeted role names to IDs up front so we can detect collisions.
+	targetedIDs := map[string]bool{}
+	for role := range targets {
+		id, ok := roleID[role]
+		if !ok {
+			return nil, fmt.Errorf("role '%s' not found in server", role)
+		}
+		targetedIDs[id] = true
+	}
+
+	// Preserve existing overwrites except the targeted roles.
+	var out []*discordgo.PermissionOverwrite
+	for _, ow := range ch.PermissionOverwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeRole && targetedIDs[ow.ID] {
+			continue
+		}
+		out = append(out, ow)
+	}
+
+	// Build the targeted role overwrites, preserving the un-provided side.
+	for role, t := range targets {
+		id := roleID[role]
+		var exAllow, exDeny int64
+		for _, ow := range ch.PermissionOverwrites {
+			if ow.Type == discordgo.PermissionOverwriteTypeRole && ow.ID == id {
+				exAllow, exDeny = ow.Allow, ow.Deny
+				break
+			}
+		}
+		allow := permBitsFor(t.allow)
+		if !t.allowChanged {
+			allow = exAllow
+		}
+		deny := permBitsFor(t.deny)
+		if !t.denyChanged {
+			deny = exDeny
+		}
+		out = append(out, &discordgo.PermissionOverwrite{ID: id, Type: discordgo.PermissionOverwriteTypeRole, Allow: allow, Deny: deny})
+	}
+	return out, nil
+}
+
 var serverFlag string
 
 func init() {
@@ -697,8 +1006,7 @@ func init() {
 	channelCmd.AddCommand(channelUpdateCmd)
 	channelCmd.AddCommand(channelDeleteCmd)
 	channelCmd.AddCommand(channelMoveCmd)
-	channelCmd.AddCommand(channelExportCmd)
-	channelCmd.AddCommand(channelImportCmd)
+	channelCmd.AddCommand(channelShowCmd)
 
 	channelListCmd.Flags().StringVar(&serverFlag, "server", "", "Server ID (defaults to configured server)")
 
@@ -706,6 +1014,8 @@ func init() {
 	channelAddCmd.Flags().StringVar(&channelAddFlags.name, "name", "", "Channel name (required)")
 	channelAddCmd.Flags().StringVar(&channelAddFlags.typ, "type", "text", "Channel type: text or voice")
 	channelAddCmd.Flags().StringVar(&channelAddFlags.category, "category", "", "Category ID to place channel under")
+	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
+	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 	channelAddCmd.Flags().BoolVarP(&channelAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
 	channelUpdateCmd.Flags().StringVar(&channelUpdateFlags.channel, "channel", "", "Channel ID to update (required)")
@@ -713,6 +1023,8 @@ func init() {
 	channelUpdateCmd.Flags().StringVar(&channelUpdateFlags.topic, "topic", "", "Channel topic (text channels only)")
 	channelUpdateCmd.Flags().StringVar(&channelUpdateFlags.category, "category", "", "Category ID to move channel to")
 	channelUpdateCmd.Flags().BoolVar(&channelUpdateFlags.nsfw, "nsfw", false, "Mark channel as NSFW")
+	channelUpdateCmd.Flags().StringSliceVar(&channelUpdateFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
+	channelUpdateCmd.Flags().StringSliceVar(&channelUpdateFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 	channelUpdateCmd.Flags().BoolVarP(&channelUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
 	channelDeleteCmd.Flags().StringVar(&channelDeleteFlags.channel, "channel", "", "Channel ID to delete (required)")
@@ -724,11 +1036,6 @@ func init() {
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.category, "category", "", "Category ID to move channel to (use 'none' to remove from category)")
 	channelMoveCmd.Flags().BoolVarP(&channelMoveFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
-	channelExportCmd.Flags().StringVar(&channelExportFlags.server, "server", "", "Server ID (defaults to configured server)")
-	channelExportCmd.Flags().StringVar(&channelExportFlags.file, "file", "", "Output file (defaults to channels.json)")
-
-	channelImportCmd.Flags().StringVar(&channelImportFlags.server, "server", "", "Server ID (defaults to configured server)")
-	channelImportCmd.Flags().StringVar(&channelImportFlags.file, "file", "", "JSON file to import (defaults to channels.json)")
-	channelImportCmd.Flags().BoolVar(&channelImportFlags.deleteMissing, "delete-missing", false, "Delete channels on the server not present in the file (non-reversible)")
-	channelImportCmd.Flags().BoolVarP(&channelImportFlags.yes, "yes", "y", false, "Skip the 'apply' confirmation prompt")
+	channelShowCmd.Flags().StringVar(&channelShowFlags.server, "server", "", "Server ID (defaults to configured server)")
+	channelShowCmd.Flags().StringVar(&channelShowFlags.channel, "channel", "", "Channel ID to show details for (required)")
 }

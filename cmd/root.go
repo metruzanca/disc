@@ -30,4 +30,5 @@ func init() {
 	rootCmd.AddCommand(channelCmd)
 	rootCmd.AddCommand(eventCmd)
 	rootCmd.AddCommand(roleCmd)
+	rootCmd.AddCommand(configCmd)
 }

@@ -4,8 +4,16 @@ A CLI for managing Discord servers via a bot.
 
 Manage Discord servers, channels, roles, and scheduled events. Designed for automation and agent-based workflows.
 
+The CLI supports two ways to work with the server:
+
+- **Imperative** — run a command and it changes the server immediately (e.g.
+  `disc channel add`, `disc role update`).
+- **Declarative** — describe the desired state in a `server.json` file with
+  `disc config`, then apply it with `disc config push`.
+
 ## Features
 
+- **Two usage modes** — imperative commands for one-off changes, or declarative `disc config` for reproducible, versionable server state
 - **Server discovery** — list channels and roles to see the current structure of a server
 - **Channel management** — create, update, delete, and move channels
 - **Role management** — create, update, delete, and inspect roles
@@ -75,25 +83,60 @@ disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
 
 Every mutating command (create, update, delete, move) prompts for confirmation before making changes. Pass `-y` / `--yes` to skip the prompt — useful for scripting.
 
-## Exporting and importing
+## Declarative config
 
-Channels and roles can be snapshotted to JSON and reapplied.
+Roles and channels can be managed declaratively through a single JSON file
+(`server.json`), combining what used to be separate snapshots into one
+source of truth that can be committed and reapplied.
 
 ```bash
-# Export the current structure to JSON (channels.json / roles.json by default)
-disc channel export
-disc role export
+# Snapshot the live server into server.json (roles + channels together)
+disc config pull
 
-# Import a definition: a dry run is shown first, then type "apply" to proceed
-disc channel import
-disc role import
+# Make declarative edits to the config file instead of the server
+disc config role add --name Moderator --permissions "Kick Members,Ban Members"
+disc config role update --role 123456789 --color 00FF00
+disc config role update --role 123456789 --position 3
+disc config role delete --role 123456789
+disc config channel add --name help --category Staff
+disc config channel move --channel 111111111 --position 0
+disc config channel update --channel 111111111 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+disc config channel update --channel 111111111 --no-overwrite Moderator
+disc config channel delete --channel 111111111
+
+# Apply the config to the live server (dry run first; type "apply" to proceed)
+disc config push
+disc config push --delete-missing
 ```
 
-Import matches channels and roles by name, so it is **idempotent** — running
-it again produces no changes, and a partial setup is left untouched. Deleting
-resources absent from the file only happens with `--delete-missing`; when it
-does, the dry run warns (in red) that deletion is non-reversible before asking
-you to type `apply`.
+`disc config pull` includes each role and channel's server ID, role/channel
+positions, and channel permission overwrites, so edits can reference resources
+by ID. `disc config push` matches entries by ID when present and by name
+otherwise, so it is **idempotent** — running it again produces no changes, and
+a partial setup is left untouched. Deleting resources absent from the file only
+happens with `--delete-missing`; when it does, the dry run warns (in red) that
+deletion is non-reversible before asking you to type `apply`. Managed roles,
+`@everyone`, system channels, and member-level permission overwrites are never
+deleted.
+
+Channel permission overwrites are managed per role. On `push`, overwrites
+absent from the config are preserved unless `--delete-missing` is given.
+
+To find the exact permission names used by `--permissions` (and `--allow` /
+`--deny`), run:
+
+```bash
+disc role perm list
+```
+
+Imperatively, channel permission overwrites can be set at creation or update,
+and channel details inspected, like so:
+
+```bash
+disc channel add --name general --allow "Moderator:Send Messages"
+disc channel update --channel 111111111 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+disc channel show --channel 111111111
+```
 
 ## Documentation
 

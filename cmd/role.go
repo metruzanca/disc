@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -63,8 +60,8 @@ var (
 )
 
 var roleShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Show role details",
+	Use:     "show",
+	Short:   "Show role details",
 	Example: `  disc role show --server 123456789 --role 987654321`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if roleShowFlags.role == "" {
@@ -167,6 +164,7 @@ var (
 		color       string
 		hoist       bool
 		mentionable bool
+		permissions string
 		yes         bool
 	}{}
 )
@@ -179,7 +177,8 @@ var roleAddCmd = &cobra.Command{
 Examples:
   disc role add --server 123456789 --name "Moderator"
   disc role add --server 123456789 --name "VIP" --color FF0000 --hoist
-  disc role add --server 123456789 --name "Helper" --mentionable`,
+  disc role add --server 123456789 --name "Helper" --mentionable
+  disc role add --server 123456789 --name "Moderator" --permissions "Kick Members,Ban Members"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, serverID, err := newClientAndServer(roleAddFlags.server)
 		if err != nil {
@@ -207,6 +206,17 @@ Examples:
 			}
 			params.Color = &c
 		}
+		if cmd.Flags().Changed("permissions") {
+			perms, err := splitPermissions(roleAddFlags.permissions)
+			if err != nil {
+				return err
+			}
+			bits, err := computeRolePerms(perms, permissionBitsByName())
+			if err != nil {
+				return err
+			}
+			params.Permissions = &bits
+		}
 
 		role, err := client.Session().GuildRoleCreate(serverID, params)
 		if err != nil {
@@ -225,6 +235,7 @@ var (
 		color       string
 		hoist       bool
 		mentionable bool
+		permissions string
 		yes         bool
 	}{}
 )
@@ -237,7 +248,8 @@ var roleUpdateCmd = &cobra.Command{
 Examples:
   disc role update --server 123456789 --role 987654321 --name "New Name"
   disc role update --server 123456789 --role 987654321 --color 00FF00
-  disc role update --server 123456789 --role 987654321 --hoist=false`,
+  disc role update --server 123456789 --role 987654321 --hoist=false
+  disc role update --server 123456789 --role 987654321 --permissions "Kick Members,Ban Members"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if roleUpdateFlags.role == "" {
 			return fmt.Errorf("--role is required")
@@ -269,6 +281,17 @@ Examples:
 		}
 		if cmd.Flags().Changed("mentionable") {
 			params.Mentionable = &roleUpdateFlags.mentionable
+		}
+		if cmd.Flags().Changed("permissions") {
+			perms, err := splitPermissions(roleUpdateFlags.permissions)
+			if err != nil {
+				return err
+			}
+			bits, err := computeRolePerms(perms, permissionBitsByName())
+			if err != nil {
+				return err
+			}
+			params.Permissions = &bits
 		}
 
 		role, err := client.Session().GuildRoleEdit(serverID, roleUpdateFlags.role, params)
@@ -314,147 +337,42 @@ var roleDeleteCmd = &cobra.Command{
 	},
 }
 
-// roleExport is one role in the export/import JSON.
+// roleExport is one role in the server config JSON.
 type roleExport struct {
+	ID          string   `json:"id,omitempty"`
 	Name        string   `json:"name"`
 	Color       string   `json:"color,omitempty"`
 	Hoist       bool     `json:"hoist,omitempty"`
 	Mentionable bool     `json:"mentionable,omitempty"`
+	Position    int      `json:"position,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
 }
 
-// rolesExportFile is the top-level JSON document for role export/import.
-type rolesExportFile struct {
-	Roles []roleExport `json:"roles"`
-}
+// exportRoles converts the server's live roles into config entries, skipping
+// managed (integration/bot) roles. Each entry carries its server ID.
+func exportRoles(s *discordgo.Session, serverID string) ([]roleExport, error) {
+	roles, err := s.GuildRoles(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list roles: %w", err)
+	}
 
-var (
-	roleExportFlags = struct {
-		server string
-		file   string
-	}{}
-)
-
-var roleExportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export roles to JSON",
-	Long: `Export the server's roles as JSON to a file (roles.json by default).
-Managed (integration/bot) roles are skipped.
-
-Examples:
-  disc role export
-  disc role export --file roles.json
-  disc role export --server 123456789 --file roles.json`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, serverID, err := newClientAndServer(roleExportFlags.server)
-		if err != nil {
-			return err
+	var out []roleExport
+	for _, r := range roles {
+		if r.Managed {
+			continue
 		}
-		defer client.Close()
-
-		roles, err := client.Session().GuildRoles(serverID)
-		if err != nil {
-			return fmt.Errorf("failed to list roles: %w", err)
+		re := roleExport{ID: r.ID, Name: r.Name, Hoist: r.Hoist, Mentionable: r.Mentionable, Position: r.Position}
+		if r.Color != 0 {
+			re.Color = fmt.Sprintf("%06X", r.Color)
 		}
-
-		file := rolesExportFile{}
-		for _, r := range roles {
-			if r.Managed {
-				continue
-			}
-			re := roleExport{Name: r.Name, Hoist: r.Hoist, Mentionable: r.Mentionable}
-			if r.Color != 0 {
-				re.Color = fmt.Sprintf("%06X", r.Color)
-			}
-			for _, p := range permissionNames() {
-				if r.Permissions&p.bit != 0 {
-					re.Permissions = append(re.Permissions, p.name)
-				}
-			}
-			file.Roles = append(file.Roles, re)
-		}
-
-		data, err := json.MarshalIndent(file, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to encode roles: %w", err)
-		}
-
-		out := roleExportFlags.file
-		if out == "" {
-			out = "roles.json"
-		}
-		if err := os.WriteFile(out, append(data, '\n'), 0o644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", out, err)
-		}
-		util.Green.Printf("Exported roles to %s\n", out)
-		return nil
-	},
-}
-
-var (
-	roleImportFlags = struct {
-		server        string
-		file          string
-		deleteMissing bool
-		yes           bool
-	}{}
-)
-
-var roleImportCmd = &cobra.Command{
-	Use:   "import",
-	Short: "Import roles from JSON",
-	Long: `Apply a JSON role definition to the server, matching roles by name.
-Reads roles.json by default.
-
-Roles already present with the correct settings are left unchanged. Pass
---delete-missing to also delete roles on the server that are not in the file
-(a non-reversible action). Managed roles and @everyone are never deleted. A
-dry run is shown first; type "apply" to proceed.
-
-Examples:
-  disc role import
-  disc role import --file roles.json
-  disc role import --file roles.json --delete-missing`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		file := roleImportFlags.file
-		if file == "" {
-			file = "roles.json"
-		}
-		var f rolesExportFile
-		if err := readJSONFile(file, &f); err != nil {
-			return err
-		}
-
-		client, serverID, err := newClientAndServer(roleImportFlags.server)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		roles, err := client.Session().GuildRoles(serverID)
-		if err != nil {
-			return fmt.Errorf("failed to list roles: %w", err)
-		}
-
-		changes, ops, err := planRoleImport(client.Session(), serverID, f, roles, roleImportFlags.deleteMissing)
-		if err != nil {
-			return err
-		}
-		abs, err := filepath.Abs(file)
-		if err != nil {
-			abs = file
-		}
-		if !applyPlan(abs, changes, roleImportFlags.yes) {
-			util.Yellow.Println("Aborted.")
-			return nil
-		}
-		for _, op := range ops {
-			if err := op(); err != nil {
-				return err
+		for _, p := range permissionNames() {
+			if r.Permissions&p.bit != 0 {
+				re.Permissions = append(re.Permissions, p.name)
 			}
 		}
-		return nil
-	},
+		out = append(out, re)
+	}
+	return out, nil
 }
 
 // permissionBitsByName builds a lookup of permission name to bit, so an
@@ -493,31 +411,41 @@ func roleNeedsUpdate(r *discordgo.Role, want roleExport, wantPerms int64) bool {
 		r.Permissions != wantPerms
 }
 
-// planRoleImport diffs the desired file against the live roles and returns the
-// display plan plus the ordered operations to execute.
-func planRoleImport(s *discordgo.Session, serverID string, file rolesExportFile, roles []*discordgo.Role, deleteMissing bool) ([]planAction, []func() error, error) {
+// planRoleImport diffs the desired roles against the live roles and returns
+// the display plan plus the ordered operations to execute. Each desired role is
+// matched to a live role by ID when it carries one, falling back to name for
+// entries without an ID (e.g. freshly added config entries). roleIDByName maps
+// role names to IDs and is updated as roles are created. Roles are reordered to
+// match their configured positions when the order differs.
+func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport, roles []*discordgo.Role, roleIDByName map[string]string, deleteMissing bool) ([]planAction, []func() error, error) {
 	permBits := permissionBitsByName()
 
+	desiredIDs := map[string]bool{}
 	desiredNames := map[string]bool{}
-	for _, re := range file.Roles {
+	for _, re := range desired {
 		if re.Name == "" {
 			return nil, nil, fmt.Errorf("role entry is missing a name")
+		}
+		if re.ID != "" {
+			desiredIDs[re.ID] = true
 		}
 		desiredNames[re.Name] = true
 	}
 
+	existingByID := map[string]*discordgo.Role{}
 	existingByName := map[string]*discordgo.Role{}
 	for _, r := range roles {
 		if r.Managed {
 			continue
 		}
+		existingByID[r.ID] = r
 		existingByName[r.Name] = r
 	}
 
 	var changes []planAction
 	var ops []func() error
 
-	for _, re := range file.Roles {
+	for _, re := range desired {
 		re := re
 		wantPerms, err := computeRolePerms(re.Permissions, permBits)
 		if err != nil {
@@ -532,38 +460,41 @@ func planRoleImport(s *discordgo.Session, serverID string, file rolesExportFile,
 			wantColor = c
 		}
 
-		if er, exists := existingByName[re.Name]; exists {
+		// Resolve the matching live role: prefer ID, then name.
+		var er *discordgo.Role
+		if re.ID != "" {
+			er = existingByID[re.ID]
+		}
+		if er == nil {
+			er = existingByName[re.Name]
+		}
+
+		params := &discordgo.RoleParams{
+			Name:        re.Name,
+			Color:       &wantColor,
+			Hoist:       &re.Hoist,
+			Mentionable: &re.Mentionable,
+			Permissions: &wantPerms,
+		}
+		if er != nil {
 			if roleNeedsUpdate(er, re, wantPerms) {
+				er := er
 				changes = append(changes, planAction{"update", fmt.Sprintf("role '%s'", re.Name)})
 				ops = append(ops, func() error {
-					params := &discordgo.RoleParams{
-						Name:        re.Name,
-						Color:       &wantColor,
-						Hoist:       &re.Hoist,
-						Mentionable: &re.Mentionable,
-						Permissions: &wantPerms,
-					}
 					return editRole(s, serverID, er.ID, params)
 				})
 			}
 		} else {
 			changes = append(changes, planAction{"create", fmt.Sprintf("role '%s'", re.Name)})
 			ops = append(ops, func() error {
-				params := &discordgo.RoleParams{
-					Name:        re.Name,
-					Color:       &wantColor,
-					Hoist:       &re.Hoist,
-					Mentionable: &re.Mentionable,
-					Permissions: &wantPerms,
-				}
-				return createRole(s, serverID, params)
+				return createRole(s, serverID, params, roleIDByName)
 			})
 		}
 	}
 
 	if deleteMissing {
 		for name, r := range existingByName {
-			if desiredNames[name] || name == "@everyone" {
+			if desiredNames[name] || desiredIDs[r.ID] || name == "@everyone" {
 				continue
 			}
 			r := r
@@ -572,14 +503,82 @@ func planRoleImport(s *discordgo.Session, serverID string, file rolesExportFile,
 		}
 	}
 
+	if reorder, op := roleReorderOp(s, serverID, desired, roles); reorder {
+		changes = append(changes, planAction{"update", "role order"})
+		ops = append(ops, op)
+	}
+
 	return changes, ops, nil
 }
 
-func createRole(s *discordgo.Session, serverID string, params *discordgo.RoleParams) error {
+// roleReorderOp detects whether the configured role order differs from the live
+// order and, if so, returns an operation that reorders the roles. It only
+// considers roles present in the config (by ID). Managed roles and roles not in
+// the config are kept in their current slots.
+func roleReorderOp(s *discordgo.Session, serverID string, desired []roleExport, roles []*discordgo.Role) (bool, func() error) {
+	pos := map[string]int{}
+	for _, re := range desired {
+		if re.ID != "" {
+			pos[re.ID] = re.Position
+		}
+	}
+	if len(pos) == 0 {
+		return false, nil
+	}
+
+	// Desired order: highest position first (matches Discord hierarchy).
+	ids := make([]string, 0, len(pos))
+	for id := range pos {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return pos[ids[i]] > pos[ids[j]] })
+
+	liveRank := map[string]int{}
+	for i, r := range roles {
+		liveRank[r.ID] = i
+	}
+	changed := false
+	for i := 1; i < len(ids); i++ {
+		if liveRank[ids[i-1]] > liveRank[ids[i]] {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+
+	inDesired := map[string]bool{}
+	for _, id := range ids {
+		inDesired[id] = true
+	}
+	var target []*discordgo.Role
+	var deferred []*discordgo.Role
+	for _, r := range roles {
+		if inDesired[r.ID] {
+			deferred = append(deferred, r)
+		} else {
+			target = append(target, r)
+		}
+	}
+	sort.Slice(deferred, func(i, j int) bool { return pos[deferred[i].ID] > pos[deferred[j].ID] })
+	target = append(target, deferred...)
+
+	return true, func() error {
+		if _, err := s.GuildRoleReorder(serverID, target); err != nil {
+			return fmt.Errorf("failed to reorder roles: %w", err)
+		}
+		util.Green.Println("Reordered roles")
+		return nil
+	}
+}
+
+func createRole(s *discordgo.Session, serverID string, params *discordgo.RoleParams, roleIDByName map[string]string) error {
 	role, err := s.GuildRoleCreate(serverID, params)
 	if err != nil {
 		return fmt.Errorf("failed to create role '%s': %w", params.Name, err)
 	}
+	roleIDByName[params.Name] = role.ID
 	util.Green.Printf("Created role %s (%s)\n", role.Name, role.ID)
 	return nil
 }
@@ -609,14 +608,38 @@ func parseHexColor(s string) (int, error) {
 	return int(v), nil
 }
 
+var rolePermCmd = &cobra.Command{
+	Use:   "perm",
+	Short: "List permission names",
+	Long:  "Utilities for working with Discord permission names.",
+}
+
+var rolePermListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List known permission names",
+	Long: `List every recognized permission name, ordered from most to least
+privileged. Use these exact names with disc role show, or with
+disc config role add/update --permissions.
+
+Example:
+  disc role perm list`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		for _, p := range permissionNames() {
+			util.Bold.Printf("  %s\n", p.name)
+		}
+		return nil
+	},
+}
+
 func init() {
 	roleCmd.AddCommand(roleListCmd)
 	roleCmd.AddCommand(roleShowCmd)
 	roleCmd.AddCommand(roleAddCmd)
 	roleCmd.AddCommand(roleUpdateCmd)
 	roleCmd.AddCommand(roleDeleteCmd)
-	roleCmd.AddCommand(roleExportCmd)
-	roleCmd.AddCommand(roleImportCmd)
+	roleCmd.AddCommand(rolePermCmd)
+	rolePermCmd.AddCommand(rolePermListCmd)
 
 	roleListCmd.Flags().StringVar(&roleListFlags.server, "server", "", "Server ID (defaults to configured server)")
 
@@ -628,6 +651,7 @@ func init() {
 	roleAddCmd.Flags().StringVar(&roleAddFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
 	roleAddCmd.Flags().BoolVar(&roleAddFlags.hoist, "hoist", false, "Display role separately in member list")
 	roleAddCmd.Flags().BoolVar(&roleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
+	roleAddCmd.Flags().StringVar(&roleAddFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 	roleAddCmd.Flags().BoolVarP(&roleAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.server, "server", "", "Server ID (defaults to configured server)")
@@ -636,17 +660,10 @@ func init() {
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
 	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.hoist, "hoist", false, "Display role separately in member list")
 	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
+	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 	roleUpdateCmd.Flags().BoolVarP(&roleUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 
 	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.role, "role", "", "Role ID to delete (required)")
 	roleDeleteCmd.Flags().BoolVarP(&roleDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
-
-	roleExportCmd.Flags().StringVar(&roleExportFlags.server, "server", "", "Server ID (defaults to configured server)")
-	roleExportCmd.Flags().StringVar(&roleExportFlags.file, "file", "", "Output file (defaults to roles.json)")
-
-	roleImportCmd.Flags().StringVar(&roleImportFlags.server, "server", "", "Server ID (defaults to configured server)")
-	roleImportCmd.Flags().StringVar(&roleImportFlags.file, "file", "", "JSON file to import (defaults to roles.json)")
-	roleImportCmd.Flags().BoolVar(&roleImportFlags.deleteMissing, "delete-missing", false, "Delete roles on the server not present in the file (non-reversible)")
-	roleImportCmd.Flags().BoolVarP(&roleImportFlags.yes, "yes", "y", false, "Skip the 'apply' confirmation prompt")
 }
