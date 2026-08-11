@@ -180,6 +180,7 @@ var (
 		allow    []string
 		deny     []string
 		yes      bool
+		dry      bool
 	}{}
 )
 
@@ -209,8 +210,7 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Create %s channel '%s' in server %s?", channelAddFlags.typ, channelAddFlags.name, serverID)
-		if !util.Confirm(summary, channelAddFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(summary, channelAddFlags.yes, channelAddFlags.dry) {
 			return nil
 		}
 
@@ -245,6 +245,7 @@ var (
 		allow    []string
 		deny     []string
 		yes      bool
+		dry      bool
 	}{}
 )
 
@@ -268,8 +269,7 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Update channel %s?", channelUpdateFlags.channel)
-		if !util.Confirm(summary, channelUpdateFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(summary, channelUpdateFlags.yes, channelUpdateFlags.dry) {
 			return nil
 		}
 
@@ -313,6 +313,7 @@ var (
 	channelDeleteFlags = struct {
 		channel string
 		yes     bool
+		dry     bool
 	}{}
 )
 
@@ -323,8 +324,7 @@ var channelDeleteCmd = &cobra.Command{
 		if channelDeleteFlags.channel == "" {
 			return fmt.Errorf("--channel is required")
 		}
-		if !util.Confirm(fmt.Sprintf("Delete channel %s?", channelDeleteFlags.channel), channelDeleteFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Delete channel %s?", channelDeleteFlags.channel), channelDeleteFlags.yes, channelDeleteFlags.dry) {
 			return nil
 		}
 
@@ -349,6 +349,7 @@ var (
 		category string
 		server   string
 		yes      bool
+		dry      bool
 	}{}
 )
 
@@ -367,8 +368,7 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Move channel %s?", channelMoveFlags.channel)
-		if !util.Confirm(summary, channelMoveFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(summary, channelMoveFlags.yes, channelMoveFlags.dry) {
 			return nil
 		}
 
@@ -1017,6 +1017,7 @@ func init() {
 	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
 	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 	channelAddCmd.Flags().BoolVarP(&channelAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	channelAddCmd.Flags().BoolVar(&channelAddFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	channelUpdateCmd.Flags().StringVar(&channelUpdateFlags.channel, "channel", "", "Channel ID to update (required)")
 	channelUpdateCmd.Flags().StringVar(&channelUpdateFlags.name, "name", "", "New channel name")
@@ -1026,15 +1027,18 @@ func init() {
 	channelUpdateCmd.Flags().StringSliceVar(&channelUpdateFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
 	channelUpdateCmd.Flags().StringSliceVar(&channelUpdateFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 	channelUpdateCmd.Flags().BoolVarP(&channelUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	channelUpdateCmd.Flags().BoolVar(&channelUpdateFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	channelDeleteCmd.Flags().StringVar(&channelDeleteFlags.channel, "channel", "", "Channel ID to delete (required)")
 	channelDeleteCmd.Flags().BoolVarP(&channelDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	channelDeleteCmd.Flags().BoolVar(&channelDeleteFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.server, "server", "", "Server ID (defaults to configured server)")
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.channel, "channel", "", "Channel ID to move (required)")
 	channelMoveCmd.Flags().IntVar(&channelMoveFlags.position, "position", -1, "New position within the category (0-indexed)")
 	channelMoveCmd.Flags().StringVar(&channelMoveFlags.category, "category", "", "Category ID to move channel to (use 'none' to remove from category)")
 	channelMoveCmd.Flags().BoolVarP(&channelMoveFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	channelMoveCmd.Flags().BoolVar(&channelMoveFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	channelShowCmd.Flags().StringVar(&channelShowFlags.server, "server", "", "Server ID (defaults to configured server)")
 	channelShowCmd.Flags().StringVar(&channelShowFlags.channel, "channel", "", "Channel ID to show details for (required)")

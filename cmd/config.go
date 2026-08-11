@@ -116,6 +116,7 @@ var (
 		file          string
 		deleteMissing bool
 		yes           bool
+		dry           bool
 	}{}
 )
 
@@ -128,12 +129,14 @@ matching each entry by ID when present and by name otherwise.
 An entry that already matches is left unchanged. Pass --delete-missing to also
 delete resources on the server that are not in the file (a non-reversible
 action). Managed roles, @everyone and system channels are never deleted. A dry
-run is shown first; type "apply" to proceed.
+run is shown first; pass --yes to apply without prompting, or --dry to stop
+after showing the plan.
 
 Examples:
   disc config push
   disc config push --file server.json
-  disc config push --delete-missing`,
+  disc config push --delete-missing
+  disc config push --dry`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		file := configFileOr(configPushFlags.file)
@@ -186,8 +189,10 @@ Examples:
 		if err != nil {
 			abs = file
 		}
-		if !applyPlan(abs, changes, configPushFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !applyPlan(abs, changes, configPushFlags.yes, configPushFlags.dry) {
+			if !configPushFlags.dry {
+				util.Yellow.Println("Aborted.")
+			}
 			return nil
 		}
 		for _, op := range ops {
@@ -223,5 +228,6 @@ func init() {
 	configPushCmd.Flags().StringVar(&configPushFlags.server, "server", "", "Server ID (defaults to configured server)")
 	configPushCmd.Flags().StringVar(&configPushFlags.file, "file", "", "JSON file to push (defaults to server.json)")
 	configPushCmd.Flags().BoolVar(&configPushFlags.deleteMissing, "delete-missing", false, "Delete resources on the server not present in the file (non-reversible)")
-	configPushCmd.Flags().BoolVarP(&configPushFlags.yes, "yes", "y", false, "Skip the 'apply' confirmation prompt")
+	configPushCmd.Flags().BoolVarP(&configPushFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	configPushCmd.Flags().BoolVar(&configPushFlags.dry, "dry", false, "Show the plan without applying it")
 }

@@ -81,7 +81,15 @@ disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
 
 ## Confirmation prompts
 
-Every mutating command (create, update, delete, move) prompts for confirmation before making changes. Pass `-y` / `--yes` to skip the prompt — useful for scripting.
+Every mutating command (create, update, delete, move) asks for a yes/no
+confirmation before making changes. Two flags make this scriptable:
+
+- `-y` / `--yes` — skip the prompt and apply immediately.
+- `--dry` — print what would happen and exit without changing anything.
+
+Pass both and `--dry` wins, so `disc ... --dry --yes` just shows the plan.
+Humans can omit the flags and get the interactive prompt; agents and scripts
+use `--dry` to preview and `--yes` to apply.
 
 ## Declarative config
 
@@ -104,18 +112,24 @@ disc config channel update --channel 111111111 --allow "Moderator:Send Messages"
 disc config channel update --channel 111111111 --no-overwrite Moderator
 disc config channel delete --channel 111111111
 
-# Apply the config to the live server (dry run first; type "apply" to proceed)
+# Apply the config to the live server (shows a dry run first, then confirms)
 disc config push
 disc config push --delete-missing
+# Non-interactive: preview with --dry, apply with --yes
+disc config push --dry
+disc config push --yes
+disc config push --delete-missing --yes
 ```
 
 `disc config pull` includes each role and channel's server ID, role/channel
 positions, and channel permission overwrites, so edits can reference resources
 by ID. `disc config push` matches entries by ID when present and by name
 otherwise, so it is **idempotent** — running it again produces no changes, and
-a partial setup is left untouched. Deleting resources absent from the file only
+a partial setup is left untouched. It prints a dry-run plan and confirms before
+applying (or `--yes` skips the prompt, `--dry` shows the plan only). Deleting
+resources absent from the file only
 happens with `--delete-missing`; when it does, the dry run warns (in red) that
-deletion is non-reversible before asking you to type `apply`. Managed roles,
+deletion is non-reversible. Managed roles,
 `@everyone`, system channels, and member-level permission overwrites are never
 deleted.
 

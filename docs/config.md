@@ -131,7 +131,8 @@ managed.
 ## 4. Apply the config to the server
 
 Push reconciles `server.json` with the live server. A dry run shows every
-planned create/update/delete; type `apply` to proceed.
+planned create/update/delete, then asks for confirmation (y/N); `--yes` applies
+without prompting, `--dry` shows the plan only.
 
 ```bash
 disc config push
@@ -146,8 +147,11 @@ Dry run for /path/to/server.json:
 
   Summary: 1 to create, 2 to update, 0 to delete
 
-Type 'apply' to continue, or anything else to cancel:
+Apply these changes? [y/N]
 ```
+
+Use `--dry` to stop after the dry run (useful for previewing without touching
+the server), and `--yes` to apply without the prompt:
 
 Push is **idempotent**: running it again with no edits produces no changes.
 It matches each entry by ID when present and by name otherwise, so a rename
@@ -168,10 +172,11 @@ disc config push --delete-missing
 ## Scripting
 
 All config edits are local and non-interactive. Push is the only command that
-touches the server, and `-y` skips its confirmation for automation:
+touches the server. For automation, preview with `--dry` and apply with `-y`:
 
 ```bash
 disc config pull --file prod.json
 disc config role add --file prod.json --name Helper --permissions "Send Messages"
+disc config push --file prod.json --dry
 disc config push --file prod.json --delete-missing --yes
 ```

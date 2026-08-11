@@ -166,6 +166,7 @@ var (
 		mentionable bool
 		permissions string
 		yes         bool
+		dry         bool
 	}{}
 )
 
@@ -189,8 +190,7 @@ Examples:
 			return fmt.Errorf("--name is required")
 		}
 
-		if !util.Confirm(fmt.Sprintf("Create role '%s' in server %s?", roleAddFlags.name, serverID), roleAddFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Create role '%s' in server %s?", roleAddFlags.name, serverID), roleAddFlags.yes, roleAddFlags.dry) {
 			return nil
 		}
 
@@ -237,6 +237,7 @@ var (
 		mentionable bool
 		permissions string
 		yes         bool
+		dry         bool
 	}{}
 )
 
@@ -260,8 +261,7 @@ Examples:
 		}
 		defer client.Close()
 
-		if !util.Confirm(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes, roleUpdateFlags.dry) {
 			return nil
 		}
 
@@ -308,6 +308,7 @@ var (
 		server string
 		role   string
 		yes    bool
+		dry    bool
 	}{}
 )
 
@@ -324,8 +325,7 @@ var roleDeleteCmd = &cobra.Command{
 		}
 		defer client.Close()
 
-		if !util.Confirm(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes, roleDeleteFlags.dry) {
 			return nil
 		}
 
@@ -653,6 +653,7 @@ func init() {
 	roleAddCmd.Flags().BoolVar(&roleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
 	roleAddCmd.Flags().StringVar(&roleAddFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 	roleAddCmd.Flags().BoolVarP(&roleAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	roleAddCmd.Flags().BoolVar(&roleAddFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.role, "role", "", "Role ID to update (required)")
@@ -662,8 +663,10 @@ func init() {
 	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
 	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 	roleUpdateCmd.Flags().BoolVarP(&roleUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.role, "role", "", "Role ID to delete (required)")
 	roleDeleteCmd.Flags().BoolVarP(&roleDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	roleDeleteCmd.Flags().BoolVar(&roleDeleteFlags.dry, "dry", false, "Show what would happen without making changes")
 }

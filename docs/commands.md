@@ -2,7 +2,7 @@
 
 Full documentation for every `disc` command. See the [README](../README.md) for installation and configuration.
 
-All server commands accept `--server <server-id>` to override the default server. Mutating commands ask for confirmation unless `--yes` is given.
+All server commands accept `--server <server-id>` to override the default server. Mutating commands ask for confirmation unless `--yes` is given; `--dry` prints what would happen and exits without changing anything.
 
 ## Status
 
@@ -57,6 +57,7 @@ disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny
 - `disc channel delete` — `--channel` (required)
 - `disc channel move` — `--channel` (required), `--position` (0-indexed), `--category` (use `none` to remove from a category)
 - `disc channel show` — `--channel` (required)
+- All mutating channel commands accept `--yes` (apply without prompting) and `--dry` (show what would happen only).
 
 `--allow` and `--deny` take `Role:Perm,Perm` values and are repeatable; the
 un-provided side of an overwrite is preserved. Member-level overwrites are not
@@ -93,6 +94,7 @@ disc role perm list
 - `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`
 - `disc role delete` — `--role` (required)
 - `disc role perm list` — lists every recognized permission name
+- All mutating role commands accept `--yes` and `--dry`.
 
 Managed (integration/bot) roles and `@everyone` are never deleted by
 `disc config push`.
@@ -121,15 +123,18 @@ disc config channel update --channel 123456789 --no-overwrite Moderator
 disc config channel move --channel 111111111 --position 0
 disc config channel delete --channel 123456789
 
-# Apply the config to the live server (dry run first; type "apply" to proceed)
+# Apply the config to the live server (shows a dry run first, then confirms)
 disc config push
 disc config push --file server.json
-# Also delete resources not present in the file (non-reversible)
 disc config push --delete-missing
+# Non-interactive: preview with --dry, apply with --yes
+disc config push --dry
+disc config push --yes
+disc config push --delete-missing --yes
 ```
 
 - `disc config pull` — `--server`, `--file` (defaults to `server.json`)
-- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`
+- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`, `--dry`
 - `disc config role add` — `--name` (required), `--color`, `--hoist`, `--mentionable`, `--permissions`
 - `disc config role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`, `--position`
 - `disc config role delete` — `--role` (required)
@@ -182,6 +187,7 @@ disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-0
 - `disc event update` — `--event` (required), `--name`, `--description`, `--channel`, `--start`, `--end`, `--location`, `--type`, `--status`
 - `disc event delete` — `--event` (required)
 - `disc event copy` — `--event` (required); any `add` flag can be used to override that property
+- All mutating event commands accept `--yes` and `--dry`.
 
 ### Event types
 

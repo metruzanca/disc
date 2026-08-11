@@ -25,28 +25,26 @@ var (
 	Yellow = color.New(color.FgYellow)
 )
 
-// Confirm asks the user a yes/no question and returns true if they agree.
-// If yes is true, it skips the prompt and returns true immediately.
-func Confirm(prompt string, yes bool) bool {
+// ConfirmRun gates a mutating action. In dry mode it prints the intended
+// action and returns false without prompting or acting. In yes mode it
+// returns true immediately. Otherwise it asks for y/N, printing a message
+// when it does not proceed. dry takes priority over yes.
+func ConfirmRun(summary string, yes, dry bool) bool {
+	if dry {
+		Cyan.Printf("DRY RUN: %s\n", summary)
+		return false
+	}
 	if yes {
 		return true
 	}
-	fmt.Printf("%s [y/N] ", prompt)
+	fmt.Printf("%s [y/N] ", summary)
 	line := readLine()
 	line = strings.TrimSpace(strings.ToLower(line))
-	return line == "y" || line == "yes"
-}
-
-// ApplyConfirm requires the user to type the exact keyword (default "apply")
-// before changes are applied. It returns true only when the input matches.
-// If yes is true, it skips the prompt and returns true immediately.
-func ApplyConfirm(prompt string, yes bool) bool {
-	if yes {
+	if line == "y" || line == "yes" {
 		return true
 	}
-	fmt.Printf("%s ", prompt)
-	line := readLine()
-	return strings.TrimSpace(line) == "apply"
+	Yellow.Println("Aborted.")
+	return false
 }
 
 func readLine() string {

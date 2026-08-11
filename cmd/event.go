@@ -138,6 +138,7 @@ var (
 		location    string
 		entityType  string
 		yes         bool
+		dry         bool
 	}{}
 )
 
@@ -198,8 +199,7 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Create event '%s' in server %s?", eventAddFlags.name, serverID)
-		if !util.Confirm(summary, eventAddFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(summary, eventAddFlags.yes, eventAddFlags.dry) {
 			return nil
 		}
 
@@ -240,6 +240,7 @@ var (
 		entityType  string
 		status      string
 		yes         bool
+		dry         bool
 	}{}
 )
 
@@ -263,8 +264,7 @@ Examples:
 		}
 		defer client.Close()
 
-		if !util.Confirm(fmt.Sprintf("Update event %s?", eventUpdateFlags.event), eventUpdateFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Update event %s?", eventUpdateFlags.event), eventUpdateFlags.yes, eventUpdateFlags.dry) {
 			return nil
 		}
 
@@ -327,6 +327,7 @@ var (
 		server string
 		event  string
 		yes    bool
+		dry    bool
 	}{}
 )
 
@@ -343,8 +344,7 @@ var eventDeleteCmd = &cobra.Command{
 		}
 		defer client.Close()
 
-		if !util.Confirm(fmt.Sprintf("Delete event %s?", eventDeleteFlags.event), eventDeleteFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(fmt.Sprintf("Delete event %s?", eventDeleteFlags.event), eventDeleteFlags.yes, eventDeleteFlags.dry) {
 			return nil
 		}
 
@@ -368,6 +368,7 @@ var (
 		location    string
 		entityType  string
 		yes         bool
+		dry         bool
 	}{}
 )
 
@@ -466,8 +467,7 @@ Examples:
 		params.Status = discordgo.GuildScheduledEventStatusScheduled
 
 		summary := fmt.Sprintf("Create copy of event '%s' as '%s'?", src.Name, params.Name)
-		if !util.Confirm(summary, eventCopyFlags.yes) {
-			util.Yellow.Println("Aborted.")
+		if !util.ConfirmRun(summary, eventCopyFlags.yes, eventCopyFlags.dry) {
 			return nil
 		}
 
@@ -559,6 +559,7 @@ func init() {
 	eventAddCmd.Flags().StringVar(&eventAddFlags.location, "location", "", "Location (required for external events)")
 	eventAddCmd.Flags().StringVar(&eventAddFlags.entityType, "type", "voice", "Entity type: voice, stage, or external")
 	eventAddCmd.Flags().BoolVarP(&eventAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	eventAddCmd.Flags().BoolVar(&eventAddFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	eventUpdateCmd.Flags().StringVar(&eventUpdateFlags.server, "server", "", "Server ID (defaults to configured server)")
 	eventUpdateCmd.Flags().StringVar(&eventUpdateFlags.event, "event", "", "Event ID to update (required)")
@@ -571,10 +572,12 @@ func init() {
 	eventUpdateCmd.Flags().StringVar(&eventUpdateFlags.entityType, "type", "", "New entity type: voice, stage, or external")
 	eventUpdateCmd.Flags().StringVar(&eventUpdateFlags.status, "status", "", "New status: scheduled, active, completed, or canceled")
 	eventUpdateCmd.Flags().BoolVarP(&eventUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	eventUpdateCmd.Flags().BoolVar(&eventUpdateFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	eventDeleteCmd.Flags().StringVar(&eventDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
 	eventDeleteCmd.Flags().StringVar(&eventDeleteFlags.event, "event", "", "Event ID to delete (required)")
 	eventDeleteCmd.Flags().BoolVarP(&eventDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	eventDeleteCmd.Flags().BoolVar(&eventDeleteFlags.dry, "dry", false, "Show what would happen without making changes")
 
 	eventCopyCmd.Flags().StringVar(&eventCopyFlags.server, "server", "", "Server ID (defaults to configured server)")
 	eventCopyCmd.Flags().StringVar(&eventCopyFlags.event, "event", "", "Event ID to copy (required)")
@@ -586,4 +589,5 @@ func init() {
 	eventCopyCmd.Flags().StringVar(&eventCopyFlags.location, "location", "", "Location (required for external events)")
 	eventCopyCmd.Flags().StringVar(&eventCopyFlags.entityType, "type", "", "Entity type: voice, stage, or external")
 	eventCopyCmd.Flags().BoolVarP(&eventCopyFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+	eventCopyCmd.Flags().BoolVar(&eventCopyFlags.dry, "dry", false, "Show what would happen without making changes")
 }

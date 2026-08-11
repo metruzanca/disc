@@ -16,10 +16,10 @@ type planAction struct {
 
 // applyPlan prints the discovered changes grouped by action, a color-coded
 // summary of how many create/update/delete changes are planned, and — unless
-// every action was already known-correct — requires the user to type "apply"
+// dry is set or every action was already known-correct — asks for confirmation
 // before returning true. If the plan contains deletes, a red warning is shown
 // because deletion is non-reversible.
-func applyPlan(path string, changes []planAction, yes bool) bool {
+func applyPlan(path string, changes []planAction, yes, dry bool) bool {
 	if len(changes) == 0 {
 		util.Yellow.Println("No changes needed.")
 		return false
@@ -60,7 +60,10 @@ func applyPlan(path string, changes []planAction, yes bool) bool {
 	}
 
 	fmt.Println()
-	return util.ApplyConfirm("Type 'apply' to continue, or anything else to cancel:", yes)
+	if dry {
+		return false
+	}
+	return util.ConfirmRun("Apply these changes?", yes, false)
 }
 
 // readJSONFile reads and unmarshals a JSON file into out.
