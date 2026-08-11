@@ -133,11 +133,16 @@ disc event update --event 987654321 --status active
 
 # Delete an event
 disc event delete --event 987654321
+
+# Copy an event, inheriting all properties (override any with the add flags)
+disc event copy --event 987654321
+disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-01-22 19:00"
 ```
 
 - `disc event add` — `--name` (required), `--start` (required), `--channel`, `--description`, `--type`, `--location`, `--end`
 - `disc event update` — `--event` (required), `--name`, `--description`, `--channel`, `--start`, `--end`, `--location`, `--type`, `--status`
 - `disc event delete` — `--event` (required)
+- `disc event copy` — `--event` (required); any `add` flag can be used to override that property
 
 ### Event types
 

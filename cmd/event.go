@@ -356,6 +356,130 @@ var eventDeleteCmd = &cobra.Command{
 	},
 }
 
+var (
+	eventCopyFlags = struct {
+		server      string
+		event       string
+		name        string
+		description string
+		channel     string
+		start       string
+		end         string
+		location    string
+		entityType  string
+		yes         bool
+	}{}
+)
+
+var eventCopyCmd = &cobra.Command{
+	Use:   "copy",
+	Short: "Copy a scheduled event",
+	Long: `Copy an existing scheduled event to create a new one, inheriting all of its
+properties. Use the same flags as "add" to override any property on the new
+event. The new event is always created as scheduled.
+
+Examples:
+  disc event copy --event 987654321
+  disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-01-22 19:00"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if eventCopyFlags.event == "" {
+			return fmt.Errorf("--event is required")
+		}
+		client, serverID, err := newClientAndServer(eventCopyFlags.server)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+
+		src, err := client.Session().GuildScheduledEvent(serverID, eventCopyFlags.event, true)
+		if err != nil {
+			return fmt.Errorf("failed to load source event: %w", err)
+		}
+
+		params := &discordgo.GuildScheduledEventParams{
+			Name:         src.Name,
+			Description:  src.Description,
+			PrivacyLevel: discordgo.GuildScheduledEventPrivacyLevelGuildOnly,
+			EntityType:   src.EntityType,
+			ChannelID:    src.ChannelID,
+		}
+
+		if eventCopyFlags.name != "" {
+			params.Name = eventCopyFlags.name
+		}
+		if cmd.Flags().Changed("description") {
+			params.Description = eventCopyFlags.description
+		}
+		if cmd.Flags().Changed("channel") {
+			params.ChannelID = eventCopyFlags.channel
+		}
+
+		start := src.ScheduledStartTime
+		if eventCopyFlags.start != "" {
+			t, err := util.ParseTime(eventCopyFlags.start)
+			if err != nil {
+				return fmt.Errorf("invalid --start: %w", err)
+			}
+			start = t
+		}
+		params.ScheduledStartTime = &start
+
+		if cmd.Flags().Changed("end") {
+			if eventCopyFlags.end == "" {
+				params.ScheduledEndTime = nil
+			} else {
+				t, err := util.ParseTime(eventCopyFlags.end)
+				if err != nil {
+					return fmt.Errorf("invalid --end: %w", err)
+				}
+				params.ScheduledEndTime = &t
+			}
+		} else {
+			params.ScheduledEndTime = src.ScheduledEndTime
+		}
+
+		location := src.EntityMetadata.Location
+		if cmd.Flags().Changed("location") {
+			location = eventCopyFlags.location
+		}
+		if cmd.Flags().Changed("type") {
+			et, err := parseEntityType(eventCopyFlags.entityType)
+			if err != nil {
+				return err
+			}
+			params.EntityType = et
+		}
+
+		if params.EntityType == discordgo.GuildScheduledEventEntityTypeExternal {
+			if location == "" {
+				return fmt.Errorf("--location is required for external events")
+			}
+			if params.ScheduledEndTime == nil {
+				return fmt.Errorf("--end is required for external events")
+			}
+		}
+		if location != "" {
+			params.EntityMetadata = &discordgo.GuildScheduledEventEntityMetadata{Location: location}
+		}
+
+		// A copy is always created as a fresh scheduled event.
+		params.Status = discordgo.GuildScheduledEventStatusScheduled
+
+		summary := fmt.Sprintf("Create copy of event '%s' as '%s'?", src.Name, params.Name)
+		if !util.Confirm(summary, eventCopyFlags.yes) {
+			util.Yellow.Println("Aborted.")
+			return nil
+		}
+
+		e, err := client.Session().GuildScheduledEventCreate(serverID, params)
+		if err != nil {
+			return fmt.Errorf("failed to copy event: %w", err)
+		}
+		util.Green.Printf("Created event %s (%s)\n", e.Name, e.ID)
+		return nil
+	},
+}
+
 func parseEntityType(s string) (discordgo.GuildScheduledEventEntityType, error) {
 	switch strings.ToLower(s) {
 	case "", "voice":
@@ -418,6 +542,7 @@ func init() {
 	eventCmd.AddCommand(eventAddCmd)
 	eventCmd.AddCommand(eventUpdateCmd)
 	eventCmd.AddCommand(eventDeleteCmd)
+	eventCmd.AddCommand(eventCopyCmd)
 
 	eventListCmd.Flags().StringVar(&eventListFlags.server, "server", "", "Server ID (defaults to configured server)")
 	eventListCmd.Flags().BoolVar(&eventListFlags.active, "active", false, "Only show scheduled and active events")
@@ -450,4 +575,15 @@ func init() {
 	eventDeleteCmd.Flags().StringVar(&eventDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
 	eventDeleteCmd.Flags().StringVar(&eventDeleteFlags.event, "event", "", "Event ID to delete (required)")
 	eventDeleteCmd.Flags().BoolVarP(&eventDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
+
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.server, "server", "", "Server ID (defaults to configured server)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.event, "event", "", "Event ID to copy (required)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.name, "name", "", "Event name (defaults to the source's name)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.description, "description", "", "Event description")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.channel, "channel", "", "Channel ID to host the event in")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.start, "start", "", "Start time (e.g. 2006-01-02 15:04 or RFC3339)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.end, "end", "", "End time (required for external events)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.location, "location", "", "Location (required for external events)")
+	eventCopyCmd.Flags().StringVar(&eventCopyFlags.entityType, "type", "", "Entity type: voice, stage, or external")
+	eventCopyCmd.Flags().BoolVarP(&eventCopyFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 }
