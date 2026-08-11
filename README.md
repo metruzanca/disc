@@ -101,6 +101,10 @@ Every mutating command (create, update, delete, move) prompts for confirmation b
 For the full command reference (channels, roles, and scheduled events),
 see [docs/commands.md](./docs/commands.md).
 
+This file exists for anyone who wants to read it from the web, but the CLI
+is designed with a `--help` screen for every subcommand, so all you really
+should need is the CLI itself to understand how to do things.
+
 ## Related projects
 
 - [nomad-server](https://github.com/metruzanca/nomad-server) — the Discord bot and Terraform server config this tool supports (channel/role discovery for Terraform imports)
