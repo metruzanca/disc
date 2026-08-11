@@ -30,6 +30,10 @@ The CLI supports two ways to work with the server:
 
 ## Installation
 
+Prebuilt binaries for Linux, macOS, and Windows are published on the
+[Releases](https://github.com/metruzanca/disc/releases) page. You can also
+install from source:
+
 ```bash
 go install github.com/metruzanca/disc@latest
 ```

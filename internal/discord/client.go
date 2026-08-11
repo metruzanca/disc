@@ -9,12 +9,12 @@ import (
 )
 
 // Permissions requested when generating invite links.
-const invitePermissions = discordgo.PermissionManageChannels |
-	discordgo.PermissionManageRoles |
-	discordgo.PermissionViewChannel |
-	discordgo.PermissionSendMessages |
-	discordgo.PermissionReadMessageHistory |
-	discordgo.PermissionCreateEvents
+const invitePermissions int64 = int64(discordgo.PermissionManageChannels) |
+	int64(discordgo.PermissionManageRoles) |
+	int64(discordgo.PermissionViewChannel) |
+	int64(discordgo.PermissionSendMessages) |
+	int64(discordgo.PermissionReadMessageHistory) |
+	int64(discordgo.PermissionCreateEvents)
 
 // Client wraps a discordgo session.
 type Client struct {

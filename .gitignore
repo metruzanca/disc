@@ -1,5 +1,8 @@
 # Binary
 disc
 
+# GoReleaser build output
+dist/
+
 # Local environment (bot token)
 .env
