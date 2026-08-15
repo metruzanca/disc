@@ -33,14 +33,19 @@ The server ID is resolved in this order: the `--server` flag → `DISCORD_SERVER
 → the single server the bot belongs to. If the bot is in more than one server
 and no ID is given, an explicit `--server` or env var is required.
 
-## Confirmation prompts
+## Confirmation prompts & interactive forms
 
-Humans run mutating commands with no flags and get an interactive `y/N` prompt.
-Agents should use the flag-based interface so nothing blocks on stdin:
+Humans run mutating commands with no flags and get an interactive experience:
+a `y/N` confirmation, and a full prefilled form (with permission multi-selects)
+for the `add` commands. Agents should use the flag-based interface so nothing
+blocks on stdin:
 
 - `--yes` / `-y` — skip the prompt and apply immediately.
 - `--dry` — print what would happen and exit without prompting or changing
   anything. If `--dry` and `--yes` are both given, `--dry` wins.
+- `--agent` — force everything non-interactive. Forms and prompts are disabled;
+  if a required parameter is missing, the command returns a descriptive error
+  naming the missing field instead of blocking.
 
 Agent workflow for any mutating command: run it with `--dry` to preview, ask
 the user to confirm, then run it again with `--yes` to apply.
@@ -143,11 +148,11 @@ disc config push
 # Non-interactive: preview with --dry, apply with --yes
 disc config push --dry
 disc config push --yes
-disc config push --file server.json --delete-missing --yes
+disc config push --agent --file server.json --delete-missing --yes
 ```
 
 Config flags: `--file` (defaults to `server.json`), `--server`, and on push
-`--delete-missing` (non-reversible), `--yes`, and `--dry`.
+`--delete-missing` (non-reversible), `--yes`, `--dry`, and `--agent`.
 
 ### How config push works
 
@@ -191,10 +196,33 @@ To find exact permission names for `--permissions` / `--allow` / `--deny`:
 disc role perm list
 ```
 
+## Agent mode
+
+Pass `--agent` on any command to guarantee zero interactivity for the whole
+invocation — even when the CLI thinks stdin is a terminal. Always pass `--agent`
+(and use `--yes`/`--dry`) when running as an agent or in a script:
+
+```bash
+disc role add --agent --name "Moderator" --permissions "Kick Members,Ban Members" --yes
+disc channel add --agent --name general --yes
+disc event add --agent --name "Coffee Break" --start "2026-01-15 19:00" --yes
+disc config push --agent --dry
+disc config push --agent --yes
+```
+
+Rules:
+- With `--agent` and a missing required parameter, the CLI returns a descriptive
+  error naming the missing field rather than launching a form or blocking.
+- With `--agent` and a mutating command that would otherwise confirm, pass
+  `--yes` to apply or `--dry` to preview; otherwise it errors with instructions.
+- `--agent` also makes `disc init` require `--token <token>` instead of reading
+  stdin.
+
 ## Automation tips
 
 - Use `--dry` to preview and `-y` / `--yes` to apply without prompting — never
-  rely on the interactive prompt (it blocks on stdin).
+  rely on the interactive prompt (it blocks on stdin). Add `--agent` to force
+  non-interactive behavior unconditionally.
 - Always preview with `--dry` and get user sign-off before applying.
 - Config edits are local and non-interactive; only `push` touches the server.
 - Write to a specific file per environment:
@@ -203,7 +231,7 @@ disc role perm list
 disc config pull --file prod.json
 disc config role add --file prod.json --name Helper --permissions "Send Messages"
 disc config push --file prod.json --dry
-disc config push --file prod.json --delete-missing --yes
+disc config push --agent --file prod.json --delete-missing --yes
 ```
 
 ## Rules of thumb

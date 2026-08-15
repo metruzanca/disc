@@ -19,10 +19,10 @@ type planAction struct {
 // dry is set or every action was already known-correct — asks for confirmation
 // before returning true. If the plan contains deletes, a red warning is shown
 // because deletion is non-reversible.
-func applyPlan(path string, changes []planAction, yes, dry bool) bool {
+func applyPlan(path string, changes []planAction, yes, dry bool) (bool, error) {
 	if len(changes) == 0 {
 		util.Yellow.Println("No changes needed.")
-		return false
+		return false, nil
 	}
 
 	util.Bold.Printf("Dry run for %s:\n", path)
@@ -61,9 +61,9 @@ func applyPlan(path string, changes []planAction, yes, dry bool) bool {
 
 	fmt.Println()
 	if dry {
-		return false
+		return false, nil
 	}
-	return util.ConfirmRun("Apply these changes?", yes, false)
+	return confirmRun("Apply these changes?", yes, false)
 }
 
 // readJSONFile reads and unmarshals a JSON file into out.

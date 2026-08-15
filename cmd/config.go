@@ -189,10 +189,11 @@ Examples:
 		if err != nil {
 			abs = file
 		}
-		if !applyPlan(abs, changes, configPushFlags.yes, configPushFlags.dry) {
-			if !configPushFlags.dry {
-				util.Yellow.Println("Aborted.")
-			}
+		proceed, err := applyPlan(abs, changes, configPushFlags.yes, configPushFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 		for _, op := range ops {

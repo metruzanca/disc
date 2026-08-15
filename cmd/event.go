@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/metruzanca/disc/internal/ui"
 	"github.com/metruzanca/disc/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -163,6 +164,27 @@ Examples:
 		}
 		defer client.Close()
 
+		if interactive(eventAddFlags.yes, eventAddFlags.dry) {
+			channels, err := uiChannels(client.Session(), serverID)
+			if err != nil {
+				return err
+			}
+			res, err := ui.EventForm(eventAddFlags.name, eventAddFlags.description, eventAddFlags.entityType, eventAddFlags.start, eventAddFlags.end, eventAddFlags.location, eventAddFlags.channel, channels)
+			if err != nil {
+				return err
+			}
+			if res == nil {
+				util.Yellow.Println("Aborted.")
+				return nil
+			}
+			eventAddFlags.name = res.Name
+			eventAddFlags.description = res.Description
+			eventAddFlags.entityType = res.Type
+			eventAddFlags.start = res.Start
+			eventAddFlags.end = res.End
+			eventAddFlags.location = res.Location
+			eventAddFlags.channel = res.ChannelID
+		}
 		if eventAddFlags.name == "" {
 			return fmt.Errorf("--name is required")
 		}
@@ -199,7 +221,11 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Create event '%s' in server %s?", eventAddFlags.name, serverID)
-		if !util.ConfirmRun(summary, eventAddFlags.yes, eventAddFlags.dry) {
+		proceed, err := confirmRun(summary, eventAddFlags.yes, eventAddFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -264,7 +290,11 @@ Examples:
 		}
 		defer client.Close()
 
-		if !util.ConfirmRun(fmt.Sprintf("Update event %s?", eventUpdateFlags.event), eventUpdateFlags.yes, eventUpdateFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Update event %s?", eventUpdateFlags.event), eventUpdateFlags.yes, eventUpdateFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -344,7 +374,11 @@ var eventDeleteCmd = &cobra.Command{
 		}
 		defer client.Close()
 
-		if !util.ConfirmRun(fmt.Sprintf("Delete event %s?", eventDeleteFlags.event), eventDeleteFlags.yes, eventDeleteFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Delete event %s?", eventDeleteFlags.event), eventDeleteFlags.yes, eventDeleteFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -467,7 +501,11 @@ Examples:
 		params.Status = discordgo.GuildScheduledEventStatusScheduled
 
 		summary := fmt.Sprintf("Create copy of event '%s' as '%s'?", src.Name, params.Name)
-		if !util.ConfirmRun(summary, eventCopyFlags.yes, eventCopyFlags.dry) {
+		proceed, err := confirmRun(summary, eventCopyFlags.yes, eventCopyFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -590,4 +628,19 @@ func init() {
 	eventCopyCmd.Flags().StringVar(&eventCopyFlags.entityType, "type", "", "Entity type: voice, stage, or external")
 	eventCopyCmd.Flags().BoolVarP(&eventCopyFlags.yes, "yes", "y", false, "Skip confirmation prompt")
 	eventCopyCmd.Flags().BoolVar(&eventCopyFlags.dry, "dry", false, "Show what would happen without making changes")
+}
+
+// uiChannels returns voice/stage channel options for the event form.
+func uiChannels(s *discordgo.Session, serverID string) ([]ui.ChannelOption, error) {
+	channels, err := s.GuildChannels(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list channels: %w", err)
+	}
+	var out []ui.ChannelOption
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildVoice || ch.Type == discordgo.ChannelTypeGuildStageVoice {
+			out = append(out, ui.ChannelOption{Name: ch.Name, ID: ch.ID, Voice: ch.Type == discordgo.ChannelTypeGuildVoice})
+		}
+	}
+	return out, nil
 }

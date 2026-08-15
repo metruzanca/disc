@@ -83,17 +83,26 @@ Commands that operate on a server resolve the server ID in this order:
 If the bot is in more than one server and no explicit server ID is given,
 disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
 
-## Confirmation prompts
+## Confirmation prompts & interactive forms
 
 Every mutating command (create, update, delete, move) asks for a yes/no
-confirmation before making changes. Two flags make this scriptable:
+confirmation before making changes. In an interactive terminal, the `add`
+commands (`channel add`, `role add`, `event add`) instead show a full form
+prefilled from any flags you pass — with multi-select pickers for role/channel
+permissions.
+
+Flags control this for scripting and agents:
 
 - `-y` / `--yes` — skip the prompt and apply immediately.
 - `--dry` — print what would happen and exit without changing anything.
+- `--agent` — force everything non-interactive (disables forms and prompts). If
+  a required parameter is missing, the command returns a descriptive error
+  naming the missing field instead of blocking on stdin.
 
-Pass both and `--dry` wins, so `disc ... --dry --yes` just shows the plan.
-Humans can omit the flags and get the interactive prompt; agents and scripts
-use `--dry` to preview and `--yes` to apply.
+Pass both `--dry` and `--yes` and `--dry` wins, so `disc ... --dry --yes` just
+shows the plan. Humans omit the flags and get the interactive prompt/form;
+agents and scripts use `--agent` (optionally with `--yes` to apply, `--dry` to
+preview) to guarantee the CLI never blocks.
 
 ## Declarative config
 

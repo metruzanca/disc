@@ -12,12 +12,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	initFlags = struct {
+		token string
+	}{}
+)
+
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Set up disc with your bot token",
 	Long: `Initialize disc by providing your Discord bot token.
 
-The token will be saved to the local .env file for future use.`,
+The token will be saved to the local .env file for future use.
+Pass --token to provide it non-interactively (required with --agent).`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		token, err := readToken()
@@ -27,7 +34,6 @@ The token will be saved to the local .env file for future use.`,
 		if strings.TrimSpace(token) == "" {
 			return fmt.Errorf("no token provided")
 		}
-
 		// Validate the token by connecting briefly.
 		client, err := discord.New(strings.TrimSpace(token))
 		if err != nil {
@@ -53,6 +59,12 @@ The token will be saved to the local .env file for future use.`,
 }
 
 func readToken() (string, error) {
+	if initFlags.token != "" {
+		return strings.TrimSpace(initFlags.token), nil
+	}
+	if agentMode {
+		return "", fmt.Errorf("no token provided; pass --token <token> (the interactive prompt is disabled by --agent)")
+	}
 	fmt.Println("Enter your Discord bot token:")
 	fmt.Print("> ")
 	reader := bufio.NewReader(os.Stdin)
@@ -61,4 +73,8 @@ func readToken() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
+}
+
+func init() {
+	initCmd.Flags().StringVar(&initFlags.token, "token", "", "Bot token (skips the interactive prompt; required with --agent)")
 }

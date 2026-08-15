@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/metruzanca/disc/internal/ui"
 	"github.com/metruzanca/disc/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -157,6 +159,29 @@ func permissionNames() []struct {
 	}
 }
 
+// permissionNameStrings returns just the names from permissionNames().
+func permissionNameStrings() []string {
+	names := permissionNames()
+	out := make([]string, 0, len(names))
+	for _, p := range names {
+		out = append(out, p.name)
+	}
+	return out
+}
+
+// splitPermsOrNil splits a comma-separated permission string into a slice,
+// returning nil on error or when empty (used to prefill the permissions form).
+func splitPermsOrNil(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	perms, err := splitPermissions(s)
+	if err != nil {
+		return nil
+	}
+	return perms
+}
+
 var (
 	roleAddFlags = struct {
 		server      string
@@ -186,11 +211,31 @@ Examples:
 			return err
 		}
 		defer client.Close()
+		if interactive(roleAddFlags.yes, roleAddFlags.dry) {
+			prefill := splitPermsOrNil(roleAddFlags.permissions)
+			res, err := ui.RoleForm(roleAddFlags.name, roleAddFlags.color, roleAddFlags.hoist, roleAddFlags.mentionable, prefill, permissionNameStrings())
+			if err != nil {
+				return err
+			}
+			if res == nil {
+				util.Yellow.Println("Aborted.")
+				return nil
+			}
+			roleAddFlags.name = res.Name
+			roleAddFlags.color = res.Color
+			roleAddFlags.hoist = res.Hoist
+			roleAddFlags.mentionable = res.Mentionable
+			roleAddFlags.permissions = strings.Join(res.Permissions, ",")
+		}
 		if roleAddFlags.name == "" {
 			return fmt.Errorf("--name is required")
 		}
 
-		if !util.ConfirmRun(fmt.Sprintf("Create role '%s' in server %s?", roleAddFlags.name, serverID), roleAddFlags.yes, roleAddFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Create role '%s' in server %s?", roleAddFlags.name, serverID), roleAddFlags.yes, roleAddFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -206,7 +251,7 @@ Examples:
 			}
 			params.Color = &c
 		}
-		if cmd.Flags().Changed("permissions") {
+		if cmd.Flags().Changed("permissions") || roleAddFlags.permissions != "" {
 			perms, err := splitPermissions(roleAddFlags.permissions)
 			if err != nil {
 				return err
@@ -261,7 +306,11 @@ Examples:
 		}
 		defer client.Close()
 
-		if !util.ConfirmRun(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes, roleUpdateFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes, roleUpdateFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -325,7 +374,11 @@ var roleDeleteCmd = &cobra.Command{
 		}
 		defer client.Close()
 
-		if !util.ConfirmRun(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes, roleDeleteFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes, roleDeleteFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 

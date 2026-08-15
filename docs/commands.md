@@ -2,7 +2,9 @@
 
 Full documentation for every `disc` command. See the [README](../README.md) for installation and configuration.
 
-All server commands accept `--server <server-id>` to override the default server. Mutating commands ask for confirmation unless `--yes` is given; `--dry` prints what would happen and exits without changing anything.
+All server commands accept `--server <server-id>` to override the default server. Mutating commands ask for confirmation unless `--yes` is given; `--dry` prints what would happen and exits without changing anything; `--agent` forces non-interactive behavior (erroring on missing required params) for scripts and agents.
+
+In an interactive terminal, the `add` commands (`channel add`, `role add`, `event add`) show a form prefilled from any flags passed, with multi-select pickers for permissions.
 
 ## Status
 
@@ -57,7 +59,7 @@ disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny
 - `disc channel delete` — `--channel` (required)
 - `disc channel move` — `--channel` (required), `--position` (0-indexed), `--category` (use `none` to remove from a category)
 - `disc channel show` — `--channel` (required)
-- All mutating channel commands accept `--yes` (apply without prompting) and `--dry` (show what would happen only).
+- All mutating channel commands accept `--yes` (apply without prompting), `--dry` (show what would happen only), and `--agent` (force non-interactive).
 
 `--allow` and `--deny` take `Role:Perm,Perm` values and are repeatable; the
 un-provided side of an overwrite is preserved. Member-level overwrites are not
@@ -94,7 +96,7 @@ disc role perm list
 - `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`
 - `disc role delete` — `--role` (required)
 - `disc role perm list` — lists every recognized permission name
-- All mutating role commands accept `--yes` and `--dry`.
+- All mutating role commands accept `--yes`, `--dry`, and `--agent`.
 
 Managed (integration/bot) roles and `@everyone` are never deleted by
 `disc config push`.
@@ -134,7 +136,7 @@ disc config push --delete-missing --yes
 ```
 
 - `disc config pull` — `--server`, `--file` (defaults to `server.json`)
-- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`, `--dry`
+- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`, `--dry`, `--agent`
 - `disc config role add` — `--name` (required), `--color`, `--hoist`, `--mentionable`, `--permissions`
 - `disc config role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`, `--position`
 - `disc config role delete` — `--role` (required)
@@ -187,7 +189,7 @@ disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-0
 - `disc event update` — `--event` (required), `--name`, `--description`, `--channel`, `--start`, `--end`, `--location`, `--type`, `--status`
 - `disc event delete` — `--event` (required)
 - `disc event copy` — `--event` (required); any `add` flag can be used to override that property
-- All mutating event commands accept `--yes` and `--dry`.
+- All mutating event commands accept `--yes`, `--dry`, and `--agent`.
 
 ### Event types
 

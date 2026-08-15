@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/metruzanca/disc/internal/ui"
 	"github.com/metruzanca/disc/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -200,6 +201,40 @@ Examples:
 			return err
 		}
 		defer client.Close()
+
+		if interactive(channelAddFlags.yes, channelAddFlags.dry) {
+			categories, err := uiCategories(client.Session(), serverID)
+			if err != nil {
+				return err
+			}
+			res, err := ui.ChannelForm(channelAddFlags.name, channelAddFlags.typ, channelAddFlags.category, categories)
+			if err != nil {
+				return err
+			}
+			if res == nil {
+				util.Yellow.Println("Aborted.")
+				return nil
+			}
+			channelAddFlags.name = res.Name
+			channelAddFlags.typ = res.Type
+			channelAddFlags.category = res.CategoryID
+
+			roles, err := uiRoles(client.Session(), serverID)
+			if err != nil {
+				return err
+			}
+			prefill, err := overwritePrefill(client.Session(), serverID, channelAddFlags.allow, channelAddFlags.deny)
+			if err != nil {
+				return err
+			}
+			ows, err := ui.OverwritesForm(roles, permissionNameStrings(), prefill)
+			if err != nil {
+				return err
+			}
+			if ows != nil {
+				channelAddFlags.allow, channelAddFlags.deny = overwritesToFlags(ows)
+			}
+		}
 		if channelAddFlags.name == "" {
 			return fmt.Errorf("--name is required")
 		}
@@ -210,7 +245,11 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Create %s channel '%s' in server %s?", channelAddFlags.typ, channelAddFlags.name, serverID)
-		if !util.ConfirmRun(summary, channelAddFlags.yes, channelAddFlags.dry) {
+		proceed, err := confirmRun(summary, channelAddFlags.yes, channelAddFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -269,7 +308,11 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Update channel %s?", channelUpdateFlags.channel)
-		if !util.ConfirmRun(summary, channelUpdateFlags.yes, channelUpdateFlags.dry) {
+		proceed, err := confirmRun(summary, channelUpdateFlags.yes, channelUpdateFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -324,7 +367,11 @@ var channelDeleteCmd = &cobra.Command{
 		if channelDeleteFlags.channel == "" {
 			return fmt.Errorf("--channel is required")
 		}
-		if !util.ConfirmRun(fmt.Sprintf("Delete channel %s?", channelDeleteFlags.channel), channelDeleteFlags.yes, channelDeleteFlags.dry) {
+		proceed, err := confirmRun(fmt.Sprintf("Delete channel %s?", channelDeleteFlags.channel), channelDeleteFlags.yes, channelDeleteFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -368,7 +415,11 @@ Examples:
 		}
 
 		summary := fmt.Sprintf("Move channel %s?", channelMoveFlags.channel)
-		if !util.ConfirmRun(summary, channelMoveFlags.yes, channelMoveFlags.dry) {
+		proceed, err := confirmRun(summary, channelMoveFlags.yes, channelMoveFlags.dry)
+		if err != nil {
+			return err
+		}
+		if !proceed {
 			return nil
 		}
 
@@ -936,6 +987,76 @@ func buildOverwrites(s *discordgo.Session, serverID string, allows, denies []str
 		return nil, err
 	}
 	return overwritesForTargets(s, serverID, targets)
+}
+
+// uiCategories returns category options for the form.
+func uiCategories(s *discordgo.Session, serverID string) ([]ui.CategoryOption, error) {
+	channels, err := s.GuildChannels(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list channels: %w", err)
+	}
+	var out []ui.CategoryOption
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildCategory {
+			out = append(out, ui.CategoryOption{Name: ch.Name, ID: ch.ID})
+		}
+	}
+	return out, nil
+}
+
+// uiRoles returns role options for the form.
+func uiRoles(s *discordgo.Session, serverID string) ([]ui.RoleOption, error) {
+	roles, err := s.GuildRoles(serverID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list roles: %w", err)
+	}
+	out := make([]ui.RoleOption, 0, len(roles))
+	for _, r := range roles {
+		name := r.Name
+		if r.ID == serverID {
+			name = "@everyone"
+		}
+		out = append(out, ui.RoleOption{Name: name, ID: r.ID})
+	}
+	return out, nil
+}
+
+// overwritePrefill converts existing --allow/--deny flags into overwrite
+// selections so the interactive overwrite form can prefill them.
+func overwritePrefill(s *discordgo.Session, serverID string, allows, denies []string) ([]ui.Overwrite, error) {
+	if len(allows) == 0 && len(denies) == 0 {
+		return nil, nil
+	}
+	targets, err := collectPermTargets(allows, denies)
+	if err != nil {
+		return nil, err
+	}
+	roleID, err := roleIDByName(s, serverID)
+	if err != nil {
+		return nil, err
+	}
+	var out []ui.Overwrite
+	for role, t := range targets {
+		id, ok := roleID[role]
+		if !ok {
+			continue
+		}
+		out = append(out, ui.Overwrite{RoleID: id, RoleName: role, Allow: t.allow, Deny: t.deny})
+	}
+	return out, nil
+}
+
+// overwritesToFlags converts form overwrites back into --allow/--deny strings.
+func overwritesToFlags(ows []ui.Overwrite) (allows, denies []string) {
+	for _, ow := range ows {
+		if len(ow.Allow) > 0 {
+			allows = append(allows, ow.RoleName+":"+strings.Join(ow.Allow, ","))
+		}
+		if len(ow.Deny) > 0 {
+			denies = append(denies, ow.RoleName+":"+strings.Join(ow.Deny, ","))
+		}
+	}
+	return allows, denies
 }
 
 // mergeOverwrites applies --allow/--deny flags to an existing channel's

@@ -8,6 +8,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// agentMode disables all interactive prompts for the invocation. Agents pass
+// --agent to guarantee the CLI never blocks on stdin; missing required params
+// then produce a descriptive error instead.
+var agentMode bool
+
 var rootCmd = &cobra.Command{
 	Use:   "disc",
 	Short: "A CLI for managing Discord servers via a bot.",
@@ -24,6 +29,8 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&agentMode, "agent", false, "Disable all interactive prompts; error on missing required params")
+
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(inviteCmd)
