@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/metruzanca/disc/internal/config"
 	"github.com/metruzanca/disc/internal/discord"
 	"github.com/metruzanca/disc/internal/util"
@@ -45,7 +47,11 @@ var statusCmd = &cobra.Command{
 		util.Bold.Printf("\nServers (%d):\n", len(guilds))
 		for _, g := range guilds {
 			util.Cyan.Printf("  - %s ", g.Name)
-			util.Dim.Printf("(ID: %s)\n", g.ID)
+			util.Dim.Printf("(ID: %s)", g.ID)
+			if cfg.ServerID != "" && g.ID == cfg.ServerID {
+				util.Green.Printf(" [default]")
+			}
+			fmt.Println()
 		}
 		return nil
 	},
