@@ -6,3 +6,6 @@ dist/
 
 # Local environment (bot token)
 .env
+
+# App artifacts
+server.json
