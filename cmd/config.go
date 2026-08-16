@@ -16,10 +16,13 @@ const defaultConfigFile = "server.json"
 
 // serverConfigFile is the declarative, combined server config: both roles and
 // channels in one JSON document. Entries carry their server IDs so edits can
-// reference resources the same way the server CLI does.
+// reference resources the same way the server CLI does. Server records the ID
+// of the server the config was pulled from, so push can warn when it is
+// applied to a different server.
 type serverConfigFile struct {
-	Roles    []roleExport    `json:"roles"`
-	Channels []channelExport `json:"channels"`
+	Server   string           `json:"server_id,omitempty"`
+	Roles    []roleExport     `json:"roles"`
+	Channels []channelExport  `json:"channels"`
 }
 
 var configCmd = &cobra.Command{
@@ -93,7 +96,7 @@ Examples:
 		defer client.Close()
 
 		s := client.Session()
-		cfg := serverConfigFile{}
+		cfg := serverConfigFile{Server: serverID}
 		if cfg.Roles, err = exportRoles(s, serverID); err != nil {
 			return err
 		}
@@ -155,6 +158,12 @@ Examples:
 		guild, err := s.Guild(serverID)
 		if err != nil {
 			return fmt.Errorf("failed to load server: %w", err)
+		}
+
+		if cfg.Server != "" && cfg.Server != serverID {
+			util.Red.Printf("WARNING: %s was pulled from server %s, but you are pushing to server %s (%s).\n", file, cfg.Server, serverID, guild.Name)
+			util.Red.Println("If this isn't intentional (e.g. cloning to a new server), abort now.")
+			fmt.Println()
 		}
 
 		roles, err := s.GuildRoles(serverID)

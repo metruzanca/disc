@@ -112,6 +112,7 @@ update newly-added entries before they are pushed.
 
 ```json
 {
+  "server_id": "1049619907212333100",
   "roles": [
     {
       "id": "1049619907212333100",

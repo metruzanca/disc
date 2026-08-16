@@ -13,10 +13,12 @@ disc config pull
 ```
 
 `server.json` combines roles and channels, each carrying its server ID so the
-edit commands can reference resources the same way the server CLI does:
+edit commands can reference resources the same way the server CLI does. A
+top-level `server_id` records which server the config was pulled from:
 
 ```json
 {
+  "server_id": "1049619907212333100",
   "roles": [
     {
       "id": "1049619907212333100",
@@ -158,6 +160,11 @@ It matches each entry by ID when present and by name otherwise, so a rename
 updates the role in place. Roles are reordered to match their configured
 positions, and channel permission overwrites are reconciled (resolving roles by
 name, including roles created during the same push).
+
+If the config's `server_id` does not match the server you're pushing to, push
+prints a warning in red before the plan. This is not an error — you can still
+push a config to another server, for example to clone it — but it makes an
+accidental push to the wrong server hard to miss.
 
 To also delete server resources that are absent from the file, pass
 `--delete-missing`. This is non-reversible, and the dry run warns in red. It
