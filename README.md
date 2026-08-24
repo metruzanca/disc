@@ -38,6 +38,15 @@ install from source:
 go install github.com/metruzanca/disc@latest
 ```
 
+## Agent skill
+
+Install the agent skill (for use with opencode and other skill-aware agents)
+with:
+
+```bash
+npx skills add metruzanca/disc
+```
+
 ## Configuration
 
 `disc` is configured entirely through environment variables, optionally
