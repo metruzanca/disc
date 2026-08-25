@@ -4,16 +4,17 @@ A CLI for managing Discord servers via a bot.
 
 Manage Discord servers, channels, roles, and scheduled events. Designed for automation and agent-based workflows.
 
-disc uses a **declarative** approach: you edit a local `server.json` file with `disc config role/channel` commands, then apply it to the server with `disc config push`. All changes are saved to the config file so nothing is lost.
+disc uses a **declarative** approach for roles and channels: you edit a local `server.json` file with `disc channel add`, `disc role add` etc., then apply it to the server with `disc server push`. All changes are saved to the config file so nothing is lost.
 
 ## Features
 
-- **Declarative config** — describe your server in `server.json`, apply with `disc config push`
+- **Multi-bot** — manage multiple Discord bots from one CLI, each with their own servers
+- **Declarative config** — describe your server in `server.json`, apply with `disc server push`
 - **Server discovery** — list channels and roles to see the current structure of a server
 - **Channel/role inspection** — read-only `channel list`, `role list`, etc.
 - **Scheduled event management** — imperative commands for events (create, update, delete, copy)
 - **Automation friendly** — non-interactive via `--yes` for scripted use
-- **Flexible config** — token and server ID via environment variables, local `.env`, or disc config directory (`~/.config/disc/servers/<id>/`)
+- **Flexible config** — local `server.json` (per-project) or global (`~/.config/disc/servers/<id>/server.json`)
 
 ## Requirements
 
@@ -43,35 +44,24 @@ npx skills add metruzanca/disc
 
 ## Configuration
 
-disc is configured through environment variables, optionally loaded from a
-local `.env` file, or from the disc config directory.
-
-### Environment variables
-
-- `DISCORD_TOKEN` — bot token (required)
-- `DISCORD_SERVER_ID` — default server ID
-- `DISC_CONFIG_LOCATION` — override config file location: `local` or `global`
+disc is configured through `~/.config/disc/bots.json`, which stores all bot
+tokens and the servers under management.
 
 ### Config file locations
 
-disc supports two config file locations:
+disc supports two config file locations per server:
 
 - **Local directory** (`server.json` in the current directory) — commit it to version control and manage your server as code. Best for teams.
 - **disc config directory** (`~/.config/disc/servers/<server-id>/server.json`) — all server configs live in a known location. Best for simple, personal server usage.
 
-Run `disc init` to choose your preferred location.
-
-### First-time setup
-
-```bash
-disc init
-```
-
-Prompts for your bot token, validates it, records your chosen config location, and prints an invite link to add the bot to a server.
+Run `disc server new` to choose your preferred location.
 
 ## Quick start
 
 ```bash
+# Add your first bot and server
+disc server new
+
 # Check the connection and which servers the bot belongs to
 disc status
 
@@ -79,7 +69,7 @@ disc status
 disc channel list
 disc role list
 
-# Generate an invite link to add the bot to another server
+# Generate an invite link to add the bot to a server
 disc invite
 ```
 
@@ -88,9 +78,8 @@ disc invite
 Commands that operate on a server resolve the server ID in this order:
 
 1. The `--server` flag
-2. The `DISCORD_SERVER_ID` environment variable
-3. A local `server.json` in the current directory (if it exists)
-4. The disc config directory's default server (if exactly one is configured)
+2. A local `server.json` in the current directory
+3. The active server from `bots.json`
 
 ## Confirmation prompts & interactive forms
 
@@ -112,28 +101,38 @@ The server config is a JSON file containing your server's roles and channels:
 ```json
 {
   "server_id": "...",
+  "bot": "...",
   "roles": [...],
   "channels": [...]
 }
 ```
 
-### Pull and push
+### Server setup commands
 
 ```bash
+# Add a new bot and server
+disc server new
+
+# Switch the active server (prints a 'cd' hint for local configs)
+disc server switch
+
+# List all managed bots and servers
+disc server list
+
 # Snapshot the live server into the config file
-disc config pull
+disc server pull
 
 # Apply the config to the live server
-disc config push
+disc server push
 
 # Preview what would change
-disc config push --dry
+disc server push --dry
 
 # Apply without prompting
-disc config push --yes
+disc server push --yes
 
 # Also delete server resources absent from the config file
-disc config push --delete-missing --yes
+disc server push --delete-missing --yes
 ```
 
 ### Edit the config
@@ -142,14 +141,14 @@ Roles and channels are edited via subcommands — nothing changes on the server 
 
 ```bash
 # Roles
-disc config role add --name Moderator --permissions "Kick Members,Ban Members"
-disc config role update --role 123456789 --color 00FF00
-disc config role delete --role 123456789
+disc role add --name Moderator --permissions "Kick Members,Ban Members"
+disc role update --role 123456789 --color 00FF00
+disc role delete --role 123456789
 
 # Channels
-disc config channel add --name help --category Staff
-disc config channel update --channel 111111111 --topic "Welcome"
-disc config channel delete --channel 111111111
+disc channel add --name help --category Staff
+disc channel update --channel 111111111 --topic "Welcome"
+disc channel delete --channel 111111111
 ```
 
 Find exact permission names with:
@@ -158,21 +157,17 @@ Find exact permission names with:
 disc role perm list
 ```
 
-To find the exact `--role` / `--channel` IDs, use `disc config pull` to snapshot the server, then look them up in `server.json`.
-
 ### Config file resolution
 
 When no `--file` is given, disc resolves the config file like this:
 
 1. `--file` flag wins.
 2. A local `server.json` in the current directory wins (so a committed file in a repo is always used).
-3. Otherwise, if `DISCORD_SERVER_ID` is set or only one disc config directory server exists, uses `~/.config/disc/servers/<id>/server.json`.
-
-You can also set `DISC_CONFIG_LOCATION=global` or `local` to control the default.
+3. Otherwise, uses the registered local path for the active server, or `~/.config/disc/servers/<id>/server.json` for globally-managed servers.
 
 ### Multiple servers
 
-disc manages multiple servers by storing each server's config and bot token in its own directory under `~/.config/disc/servers/`. Set `DISCORD_SERVER_ID` or pass `--server` to switch between them.
+disc manages multiple servers by storing each server's config and bot token in `bots.json`. Use `disc server switch` to change between them. Each server can be locally or globally managed independently.
 
 ## Scheduled events
 

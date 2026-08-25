@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/metruzanca/disc/internal/util"
@@ -438,6 +440,24 @@ func parseHexColor(s string) (int, error) {
 	return int(v), nil
 }
 
+func loadRoleConfigFileForEdit(fileFlag string, create bool) (*serverConfigFile, string, error) {
+	path, err := resolveConfigFile(fileFlag, "")
+	if err != nil {
+		return nil, "", err
+	}
+	var cfg serverConfigFile
+	if err := readJSONFile(path, &cfg); err != nil {
+		if create && os.IsNotExist(err) {
+			if err := writeConfigFile(&cfg, path); err != nil {
+				return nil, "", err
+			}
+			return &cfg, path, nil
+		}
+		return nil, "", err
+	}
+	return &cfg, path, nil
+}
+
 var rolePermCmd = &cobra.Command{
 	Use:   "perm",
 	Short: "List permission names",
@@ -462,14 +482,199 @@ Example:
 	},
 }
 
+var (
+	roleAddFlags = struct {
+		file        string
+		name        string
+		color       string
+		hoist       bool
+		mentionable bool
+		permissions string
+	}{}
+	roleUpFlags = struct {
+		file        string
+		role        string
+		name        string
+		color       string
+		hoist       bool
+		mentionable bool
+		permissions string
+		position    int
+	}{}
+	roleDelFlags = struct {
+		file string
+		role string
+	}{}
+)
+
+var roleAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a role to the config",
+	Long: `Add a role to the config file. The role is not created on the server
+until 'disc server push' runs. If a role with the same name already exists in
+the config, an error is returned.
+
+Examples:
+  disc role add --name Moderator
+  disc role add --name VIP --color FF0000 --hoist
+  disc role add --name Helper --permissions "Send Messages,Add Reactions"`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(roleAddFlags.file, "", true)
+		if err != nil {
+			return err
+		}
+		if roleAddFlags.name == "" {
+			return fmt.Errorf("--name is required")
+		}
+		for _, r := range cfg.Roles {
+			if r.Name == roleAddFlags.name {
+				return fmt.Errorf("role '%s' already exists in config; use 'disc role update' instead", r.Name)
+			}
+		}
+
+		re := roleExport{Name: roleAddFlags.name, Hoist: roleAddFlags.hoist, Mentionable: roleAddFlags.mentionable}
+		if roleAddFlags.color != "" {
+			if _, err := parseHexColor(roleAddFlags.color); err != nil {
+				return err
+			}
+			re.Color = strings.ToUpper(roleAddFlags.color)
+		}
+		if cmd.Flags().Changed("permissions") {
+			perms, err := splitPermissions(roleAddFlags.permissions)
+			if err != nil {
+				return err
+			}
+			re.Permissions = perms
+		}
+		cfg.Roles = append(cfg.Roles, re)
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Added role '%s' to %s\n", re.Name, path)
+		return nil
+	},
+}
+
+var roleUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a role in the config",
+	Long: `Update a role in the config file by its ID. The change is applied to
+the server on the next 'disc server push'.
+
+Examples:
+  disc role update --role 987654321 --name "New Name"
+  disc role update --role 987654321 --color 00FF00
+  disc role update --role 987654321 --permissions "Kick Members,Ban Members"
+  disc role update --role 987654321 --position 3`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(roleUpFlags.file, "", false)
+		if err != nil {
+			return err
+		}
+		i := findRoleInConfig(cfg, roleUpFlags.role)
+		if i == -1 {
+			return fmt.Errorf("role with ID '%s' not found in config", roleUpFlags.role)
+		}
+
+		re := &cfg.Roles[i]
+		if cmd.Flags().Changed("name") {
+			re.Name = roleUpFlags.name
+		}
+		if cmd.Flags().Changed("color") {
+			if roleUpFlags.color == "" {
+				re.Color = ""
+			} else {
+				if _, err := parseHexColor(roleUpFlags.color); err != nil {
+					return err
+				}
+				re.Color = strings.ToUpper(roleUpFlags.color)
+			}
+		}
+		if cmd.Flags().Changed("hoist") {
+			re.Hoist = roleUpFlags.hoist
+		}
+		if cmd.Flags().Changed("mentionable") {
+			re.Mentionable = roleUpFlags.mentionable
+		}
+		if cmd.Flags().Changed("permissions") {
+			perms, err := splitPermissions(roleUpFlags.permissions)
+			if err != nil {
+				return err
+			}
+			re.Permissions = perms
+		}
+		if cmd.Flags().Changed("position") {
+			re.Position = roleUpFlags.position
+		}
+
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Updated role '%s' in %s\n", re.Name, path)
+		return nil
+	},
+}
+
+var roleDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a role from the config",
+	Long: `Remove a role from the config file by its ID. The role is removed
+from the server on the next 'disc server push'.
+
+Example:
+  disc role delete --role 987654321`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(roleDelFlags.file, "", false)
+		if err != nil {
+			return err
+		}
+		i := findRoleInConfig(cfg, roleDelFlags.role)
+		if i == -1 {
+			return fmt.Errorf("role with ID '%s' not found in config", roleDelFlags.role)
+		}
+		name := cfg.Roles[i].Name
+		cfg.Roles = append(cfg.Roles[:i], cfg.Roles[i+1:]...)
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Removed role '%s' from %s\n", name, path)
+		return nil
+	},
+}
+
 func init() {
 	roleCmd.AddCommand(roleListCmd)
 	roleCmd.AddCommand(roleShowCmd)
 	roleCmd.AddCommand(rolePermCmd)
 	rolePermCmd.AddCommand(rolePermListCmd)
+	roleCmd.AddCommand(roleAddCmd)
+	roleCmd.AddCommand(roleUpdateCmd)
+	roleCmd.AddCommand(roleDeleteCmd)
 
-	roleListCmd.Flags().StringVar(&roleListFlags.server, "server", "", "Server ID (defaults to configured server)")
+	roleListCmd.Flags().StringVar(&roleListFlags.server, "server", "", "Server ID (defaults to active server)")
 
-	roleShowCmd.Flags().StringVar(&roleShowFlags.server, "server", "", "Server ID (defaults to configured server)")
+	roleShowCmd.Flags().StringVar(&roleShowFlags.server, "server", "", "Server ID (defaults to active server)")
 	roleShowCmd.Flags().StringVar(&roleShowFlags.role, "role", "", "Role ID to show details for (required)")
+
+	roleAddCmd.Flags().StringVar(&roleAddFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	roleAddCmd.Flags().StringVar(&roleAddFlags.name, "name", "", "Role name (required)")
+	roleAddCmd.Flags().StringVar(&roleAddFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
+	roleAddCmd.Flags().BoolVar(&roleAddFlags.hoist, "hoist", false, "Display role separately in member list")
+	roleAddCmd.Flags().BoolVar(&roleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
+	roleAddCmd.Flags().StringVar(&roleAddFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
+
+	roleUpdateCmd.Flags().StringVar(&roleUpFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	roleUpdateCmd.Flags().StringVar(&roleUpFlags.role, "role", "", "Role ID to update (required)")
+	roleUpdateCmd.Flags().StringVar(&roleUpFlags.name, "name", "", "New role name")
+	roleUpdateCmd.Flags().StringVar(&roleUpFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
+	roleUpdateCmd.Flags().BoolVar(&roleUpFlags.hoist, "hoist", false, "Display role separately in member list")
+	roleUpdateCmd.Flags().BoolVar(&roleUpFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
+	roleUpdateCmd.Flags().StringVar(&roleUpFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
+	roleUpdateCmd.Flags().IntVar(&roleUpFlags.position, "position", 0, "Role position (hierarchy rank; higher is above)")
+
+	roleDeleteCmd.Flags().StringVar(&roleDelFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	roleDeleteCmd.Flags().StringVar(&roleDelFlags.role, "role", "", "Role ID to delete (required)")
 }

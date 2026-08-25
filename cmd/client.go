@@ -2,79 +2,155 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/metruzanca/disc/internal/config"
 	"github.com/metruzanca/disc/internal/discord"
 )
 
-// resolveServerID returns the server ID to operate on.
-//
-// Resolution order:
-//  1. the --server flag
-//  2. the DISCORD_SERVER_ID environment variable (or .env / global env)
-//  3. the single server the bot is a member of (if exactly one)
-//
-// If the bot is in more than one server and no explicit ID is given, an
-// error instructs the user to set DISCORD_SERVER_ID or pass --server.
-func resolveServerID(flagValue string, client *discord.Client) (string, error) {
-	if flagValue != "" {
-		return flagValue, nil
+func resolveServerID(serverFlag string) (string, error) {
+	if serverFlag != "" {
+		return serverFlag, nil
 	}
-	cfg, err := config.Load()
+
+	if _, err := os.Stat("server.json"); err == nil {
+		var cfg serverConfigFile
+		if err := readJSONFile("server.json", &cfg); err == nil && cfg.Server != "" {
+			return cfg.Server, nil
+		}
+	}
+
+	bf, err := loadBots()
+	if err != nil || bf == nil {
+		return "", fmt.Errorf("no server configured; run 'disc server new' or use --server")
+	}
+	if bf.ActiveServer != "" {
+		return bf.ActiveServer, nil
+	}
+	return "", fmt.Errorf("no server configured; run 'disc server new' or use --server")
+}
+
+func resolveBotForServer(serverID string) (string, error) {
+	bf, err := loadBots()
 	if err != nil {
 		return "", err
 	}
-	if id := cfg.ServerID; id != "" {
-		return id, nil
+	if bf == nil || bf.Bots == nil || len(bf.Bots) == 0 {
+		return "", fmt.Errorf("no bots configured; run 'disc server new'")
 	}
 
-	guilds := client.Guilds()
-	switch len(guilds) {
-	case 0:
-		return "", fmt.Errorf("no server ID set and the bot is not in any server; pass --server or set DISCORD_SERVER_ID")
-	case 1:
-		return guilds[0].ID, nil
-	default:
-		return "", fmt.Errorf("no server ID set and the bot is in %d servers; pass --server or set DISCORD_SERVER_ID", len(guilds))
-	}
-}
-
-// newClientAndServer creates a connected client and resolves the server ID.
-func newClientAndServer(serverFlag string) (*discord.Client, string, error) {
-	if serverFlag != "" {
-		if err := config.LoadForServer(serverFlag); err != nil {
-			return nil, "", err
+	if serverID != "" {
+		if botID, ok := bf.BotManagingServer(serverID); ok {
+			return botID, nil
 		}
 	}
-	client, err := newClient()
+
+	if bf.ActiveBot != "" {
+		return bf.ActiveBot, nil
+	}
+
+	return "", fmt.Errorf("cannot determine which bot to use; run 'disc server new' or use --server")
+}
+
+func newClientAndServer(serverFlag string) (*discord.Client, string, error) {
+	serverID, err := resolveServerID(serverFlag)
 	if err != nil {
 		return nil, "", err
 	}
-	serverID, err := resolveServerID(serverFlag, client)
+
+	botID, err := resolveBotForServer(serverID)
 	if err != nil {
+		return nil, "", err
+	}
+
+	bf, _ := loadBots()
+	botEntry, _ := bf.GetBot(botID)
+	token := botEntry.Token
+	if token == "" {
+		return nil, "", fmt.Errorf("no token found for bot %s; run 'disc server new'", botID)
+	}
+
+	client, err := discord.New(token)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid token: %w", err)
+	}
+	if err := client.WaitReady(); err != nil {
 		client.Close()
 		return nil, "", err
 	}
 	return client, serverID, nil
 }
 
-// newClient creates a connected client from the configured token.
-func newClient() (*discord.Client, error) {
-	cfg, err := config.Load()
+func resolveActiveClient() (*discord.Client, error) {
+	bf, err := loadBots()
 	if err != nil {
 		return nil, err
 	}
-	token := cfg.Token
-	if token == "" {
-		return nil, fmt.Errorf("no bot token configured; run disc init")
+	if bf == nil || bf.Bots == nil || len(bf.Bots) == 0 {
+		return nil, fmt.Errorf("no bots configured; run 'disc server new'")
 	}
-	client, err := discord.New(token)
+
+	botID := bf.ActiveBot
+	if botID == "" {
+		return nil, fmt.Errorf("no active bot; run 'disc server new' or 'disc server switch'")
+	}
+
+	botEntry, ok := bf.GetBot(botID)
+	if !ok {
+		return nil, fmt.Errorf("bot %s not found in bots.json", botID)
+	}
+
+	client, err := discord.New(botEntry.Token)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 	if err := client.WaitReady(); err != nil {
 		client.Close()
 		return nil, err
 	}
 	return client, nil
+}
+
+func resolveActiveServerID() (string, error) {
+	bf, err := loadBots()
+	if err != nil {
+		return "", err
+	}
+	if bf == nil || bf.ActiveServer == "" {
+		return "", fmt.Errorf("no active server; run 'disc server switch'")
+	}
+	return bf.ActiveServer, nil
+}
+
+func resolveConfigFileForServer(serverFlag, fileFlag string) (string, string, error) {
+	serverID, err := resolveServerID(serverFlag)
+	if err != nil {
+		return "", "", err
+	}
+	botID, err := resolveBotForServer(serverID)
+	if err != nil {
+		return "", "", err
+	}
+
+	bf, _ := loadBots()
+
+	if fileFlag != "" {
+		return fileFlag, botID, nil
+	}
+
+	if _, err := os.Stat("server.json"); err == nil {
+		return "server.json", botID, nil
+	}
+
+	if bf != nil {
+		if entry, ok := bf.GetServerEntry(botID, serverID); ok && entry.LocalPath != "" {
+			return filepath.Join(entry.LocalPath, "server.json"), botID, nil
+		}
+		if p, err := config.ServerConfigFile(serverID); err == nil {
+			return p, botID, nil
+		}
+	}
+
+	return "", botID, fmt.Errorf("cannot resolve config file path")
 }

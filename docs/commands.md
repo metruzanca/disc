@@ -2,13 +2,48 @@
 
 Full documentation for every `disc` command. See the [README](../README.md) for installation and configuration.
 
-All server commands accept `--server <server-id>` to override the default server. Mutating commands ask for confirmation unless `--yes` is given; `--dry` prints what would happen and exits without changing anything; `--agent` forces non-interactive behavior (erroring on missing required params) for scripts and agents.
+All server commands accept `--server <server-id>` to override the active server.
+Mutating commands ask for confirmation unless `--yes` is given; `--dry` prints
+what would happen and exits without changing anything; `--agent` forces
+non-interactive behavior (erroring on missing required params) for scripts and agents.
 
-In an interactive terminal, the `add` commands (`channel add`, `role add`, `event add`) show a form prefilled from any flags passed, with multi-select pickers for permissions.
+In an interactive terminal, `disc event add` shows a form prefilled from any flags passed.
+
+## Server management
+
+```bash
+# Add a new bot and server to disc
+disc server new
+
+# Switch the active server
+disc server switch
+
+# List all managed bots and servers
+disc server list
+
+# Snapshot the live server into the config file
+disc server pull
+disc server pull --file server.json
+
+# Apply the config to the live server (shows a dry run first, then confirms)
+disc server push
+disc server push --delete-missing
+# Non-interactive: preview with --dry, apply with --yes
+disc server push --dry
+disc server push --yes
+disc server push --delete-missing --yes
+```
+
+- `disc server new` — `--token`, `--config-location` (`local`|`global`), `--server-id` (required when bot is in multiple servers)
+- `disc server switch` — `--server` (non-interactive); interactive with no flags
+- `disc server list` — no flags
+- `disc server pull` — `--file`
+- `disc server push` — `--file`, `--delete-missing`, `--yes`, `--dry`, `--agent`
 
 ## Status
 
-Show connection status and the servers the bot belongs to.
+Show all bots and servers under disc management. Connects to each bot to list
+its guilds, filtering to managed servers and marking active ones.
 
 ```bash
 disc status
@@ -16,13 +51,13 @@ disc status
 
 ## Invite
 
-Generate an OAuth2 invite link to add the bot to a server.
+Generate an OAuth2 invite link to add the active bot to a server.
 
 ```bash
 disc invite
 ```
 
-## Channels (read-only)
+## Channels
 
 ```bash
 # List channels, grouped by category
@@ -30,7 +65,33 @@ disc channel list
 
 # Show channel details, including permission overwrites
 disc channel show --channel 123456789
+
+# Add a channel to the config (not created on server until push)
+disc channel add --name general
+disc channel add --name help --category Staff
+disc channel add --name voice-chat --type voice
+
+# Update a channel in the config
+disc channel update --channel 123456789 --name new-name
+disc channel update --channel 123456789 --topic "Welcome"
+disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+
+# Delete a channel from the config
+disc channel delete --channel 123456789
+
+# Move a channel within the config
+disc channel move --channel 111111111 --position 0
+disc channel move --channel 111111111 --category Staff --position 3
 ```
+
+- `disc channel list` — `--server`
+- `disc channel show` — `--server`, `--channel` (required)
+- `disc channel add` — `--file`, `--name` (required), `--type` (`text`|`voice`|`category`|`news`|`stage`|`forum`), `--topic`, `--nsfw`, `--category`, `--position`, `--allow`, `--deny`
+- `disc channel update` — `--file`, `--channel` (required), `--name`, `--topic`, `--nsfw`, `--category`, `--allow`, `--deny`, `--no-overwrite`
+- `disc channel delete` — `--file`, `--channel` (required)
+- `disc channel move` — `--file`, `--channel` (required), `--position`, `--category`
+
+`--allow` and `--deny` take `Role:Perm,Perm` values and are repeatable. System channels (rules, updates, welcome) are never deleted by `disc server push`.
 
 ## Roles (read-only)
 
@@ -45,63 +106,30 @@ disc role show --role 987654321
 disc role perm list
 ```
 
-Managed (integration/bot) roles and `@everyone` are never deleted by
-`disc config push`.
+## Role config editing
 
-## Declarative config
-
-Manage roles and channels as declarative JSON in a single `server.json`
-file instead of applying changes to the server directly.
+Roles are edited in the config file (not created on server until push).
 
 ```bash
-# Snapshot the live server into server.json (roles + channels together)
-disc config pull
-disc config pull --server 123456789
-disc config pull --file server.json
-
-# Edit the config file declaratively (applies on the next push)
-disc config role add --name Moderator --permissions "Kick Members,Ban Members"
-disc config role update --role 987654321 --name "New Name"
-disc config role update --role 987654321 --color 00FF00
-disc config role update --role 987654321 --position 3
-disc config role delete --role 987654321
-disc config channel add --name help --category Staff
-disc config channel update --channel 123456789 --topic "Welcome to the channel"
-disc config channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
-disc config channel update --channel 123456789 --no-overwrite Moderator
-disc config channel move --channel 111111111 --position 0
-disc config channel delete --channel 123456789
-
-# Apply the config to the live server (shows a dry run first, then confirms)
-disc config push
-disc config push --file server.json
-disc config push --delete-missing
-# Non-interactive: preview with --dry, apply with --yes
-disc config push --dry
-disc config push --yes
-disc config push --delete-missing --yes
+disc role add --name Moderator --permissions "Kick Members,Ban Members"
+disc role add --name VIP --color FF0000 --hoist
+disc role update --role 987654321 --name "New Name"
+disc role update --role 987654321 --color 00FF00
+disc role update --role 987654321 --position 3
+disc role delete --role 987654321
 ```
 
-- `disc config pull` — `--server`, `--file` (defaults to `server.json`)
-- `disc config push` — `--server`, `--file`, `--delete-missing`, `--yes`, `--dry`, `--agent`
-- `disc config role add` — `--name` (required), `--color`, `--hoist`, `--mentionable`, `--permissions`
-- `disc config role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`, `--position`
-- `disc config role delete` — `--role` (required)
-- `disc config channel add` — `--name` (required), `--type`, `--topic`, `--nsfw`, `--category`, `--position`, `--allow`, `--deny`
-- `disc config channel update` — `--channel` (required), `--name`, `--topic`, `--nsfw`, `--category`, `--allow`, `--deny`, `--no-overwrite`
-- `disc config channel delete` — `--channel` (required)
-- `disc config channel move` — `--channel` (required), `--position`, `--category`
+- `disc role add` — `--file`, `--name` (required), `--color`, `--hoist`, `--mentionable`, `--permissions`
+- `disc role update` — `--file`, `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`, `--position`
+- `disc role delete` — `--file`, `--role` (required)
 
-`disc config pull` stores each role and channel's server ID, their positions,
-and role-based channel permission overwrites. Edit commands reference resources
-by ID (`--role` / `--channel`), matching the server CLI. Entries added via
-`add` have no ID until they are pushed and pulled. On push, each entry is
-matched to the server by ID when present, otherwise by name, so renames update
-in place and push is idempotent. Roles are reordered to match their configured
-positions. With `--delete-missing`, categories are only removed when none of
-their child channels are being kept, and live role overwrites absent from the
-config are removed (member overwrites are always preserved). Managed roles,
-`@everyone`, and system channels are never deleted.
+Managed (integration/bot) roles and `@everyone` are never deleted by `disc server push`.
+
+## Channel config editing
+
+Channels are edited in the config file (not created on server until push). Permissions use `Role:Perm,Perm` syntax.
+
+See channel subcommands above.
 
 ## Scheduled events
 
@@ -113,7 +141,7 @@ disc event list --active
 # Show event details
 disc event show --event 987654321
 
-# Create a voice event in a channel
+# Create a voice event in a channel (default type)
 disc event add --name "Coffee Break" --start "2026-01-15 19:00" --channel 123456789
 
 # Create an external event (requires --location and --end)

@@ -1,37 +1,32 @@
 ---
 name: disc
-description: Use when managing a Discord server through the `disc` CLI (a Go bot). Covers channels, roles, scheduled events, and declarative server config via server.json. Use whenever asked to create, update, delete, list, move, or inspect Discord channels/roles/events, or to snapshot and apply server state with `disc config`.
+description: Use when managing a Discord server through the `disc` CLI (a Go bot). Covers channels, roles, scheduled events, and server management via bots.json and server.json. Use whenever asked to create, update, delete, list, move, or inspect Discord channels/roles/events, or to snapshot and apply server state with `disc server`.
 ---
 
 # disc
 
 `disc` is a CLI for managing Discord servers via a bot. Roles and channels are
-managed **declaratively** via `disc config` commands (edit a `server.json` file,
-then apply with `disc config push`). Scheduled events are managed
-**imperatively** via `disc event` commands.
+managed **declaratively** via `disc role add/update/delete` and `disc channel add/update/delete/move`
+(edit a `server.json` file, then apply with `disc server push`). Scheduled events
+are managed **imperatively** via `disc event` commands. All bots and servers are
+registered in `~/.config/disc/bots.json`.
 
 Before running anything, confirm the bot is configured:
 
 ```bash
-disc status        # checks the connection and lists the bot's servers
+disc status        # checks all bots and shows managed servers
 disc --help        # every subcommand also has its own --help
 ```
 
 ## Configuration
 
-`disc` is configured through environment variables, optionally loaded from a
-local `.env` file, or from the disc config directory (`~/.config/disc/servers/<id>/`).
+`disc` stores all bot tokens and server registry in `~/.config/disc/bots.json`.
+No environment variables or `.env` files are used.
 
-- `DISCORD_TOKEN` — bot token (required)
-- `DISCORD_SERVER_ID` — default server ID
-- `DISC_CONFIG_LOCATION` — `local` (current dir `server.json`) or `global` (disc config dir)
+Run `disc server new` to add a bot and server (prompts for token and config location).
 
-Set up from scratch with `disc init` (prompts for token and config location).
-
-The server ID is resolved in this order: the `--server` flag → `DISCORD_SERVER_ID`
-→ a local `server.json` in the current directory → the single server in the disc
-config directory. If the bot is in more than one server and no ID is given,
-an explicit `--server` or env var is required.
+The server ID is resolved in this order: the `--server` flag → a local
+`server.json` in the current directory → the active server from `bots.json`.
 
 ## Confirmation prompts & interactive forms
 
@@ -49,82 +44,65 @@ the flag-based interface so nothing blocks on stdin:
 Agent workflow for any mutating command: run it with `--dry` to preview, ask
 the user to confirm, then run it again with `--yes` to apply.
 
-## Channels (read-only)
+## Server management
 
 ```bash
-disc channel list                       # grouped by category
-disc channel show --channel 123456789   # details incl. permission overwrites
+disc server new                    # Add a new bot and server
+disc server switch                # Switch the active server (prints cd hint)
+disc server switch --server 123  # Non-interactive switch
+disc server list                  # List all managed bots and servers
+disc server pull                  # Snapshot live server into server.json
+disc server push                  # Apply server.json to the live server
+disc server push --dry            # Preview the plan
+disc server push --delete-missing  # Also delete resources absent from file
 ```
 
-## Roles (read-only)
+`disc server new` flags: `--token` (required in agent mode), `--config-location`
+(`local` or `global`), `--server-id` (required when bot is in multiple servers).
+
+`disc server push` flags: `--file`, `--delete-missing`, `--yes`, `--dry`, `--agent`.
+
+## Channels
 
 ```bash
+# Read live server state
+disc channel list                       # grouped by category
+disc channel show --channel 123456789   # details incl. permission overwrites
+
+# Edit local config (no server changes until push)
+disc channel add --name general
+disc channel add --name help --category Staff
+disc channel add --name voice-chat --type voice
+disc channel update --channel 123456789 --topic "New topic"
+disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+disc channel delete --channel 123456789
+disc channel move --channel 111111111 --position 0
+disc channel move --channel 111111111 --category Staff --position 3
+```
+
+Channel flags: `--file`, `--name`, `--type` (`text`|`voice`|`category`|`news`|`stage`|`forum`),
+`--topic`, `--nsfw`, `--category`, `--position`, `--allow`/`--deny`
+(permission overwrites, see below).
+
+## Roles (read-only and config editing)
+
+```bash
+# Read live server state
 disc role list                          # sorted by hierarchy, highest first
 disc role show --role 987654321
 disc role perm list                     # exact names for --permissions
+
+# Edit local config (no server changes until push)
+disc role add --name Moderator --permissions "Kick Members,Ban Members"
+disc role add --name VIP --color FF0000 --hoist
+disc role update --role 987654321 --name "New Name"
+disc role update --role 987654321 --color 00FF00
+disc role update --role 987654321 --position 3
+disc role delete --role 987654321
 ```
 
-## Declarative config
-
-Manage roles and channels as JSON in a single `server.json` (commit this file
-and reapply it for reproducible server state). Use `disc config role` and
-`disc config channel` subcommands to edit the file; nothing changes on the
-server until you run `disc config push`.
-
-```bash
-# Snapshot the live server (roles + channels together)
-disc config pull
-disc config pull --file server.json --server 123456789
-
-# Edit the file (nothing changes on the server until push)
-disc config role add --name Helper --permissions "Send Messages,Add Reactions"
-disc config role update --role 987654321 --color 00FF00
-disc config role update --role 987654321 --position 3
-disc config role delete --role 987654321
-disc config channel add --name help --category Staff
-disc config channel update --channel 123456789 --topic "New topic"
-disc config channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
-disc config channel update --channel 123456789 --no-overwrite Moderator
-disc config channel move --channel 111111111 --category Staff --position 3
-disc config channel delete --channel 123456789
-
-# Apply to the server (prints a dry-run plan, then confirms)
-disc config push
-# Non-interactive: preview with --dry, apply with --yes
-disc config push --dry
-disc config push --yes
-disc config push --agent --file server.json --delete-missing --yes
-```
-
-All `disc config role/channel` commands accept `--server <id>` to target a
-specific server and `--file <path>` to use a specific config file.
-
-Config flags: `--file` (defaults to `server.json`), `--server`, and on push
-`--delete-missing` (non-reversible), `--yes`, `--dry`, and `--agent`.
-
-### How config push works
-
-- **Idempotent** — pushing with no edits produces no changes.
-- Entries are matched by ID when present, otherwise by name, so renames update
-  in place and a partial setup is left untouched.
-- Roles are reordered to match their configured positions.
-- Channel permission overwrites are reconciled, resolving roles by name
-  (including roles created during the same push).
-- `--delete-missing` deletes server resources absent from the file and removes
-  live role overwrites absent from the config. It warns in red in the plan.
-  **Managed (bot/integration) roles, `@everyone`, system
-  channels, and member-level overwrites are never deleted.**
-- Entries added with `add` have no server ID until they are pushed and pulled
-  again, so they can only be edited by ID after that round trip.
-
-### Agent workflow for applying config
-
-Always preview before changing the server, and get user sign-off:
-
-1. Run `disc config push --dry` to review the planned create/update/delete plan.
-2. Ask the user to confirm.
-3. On approval, run `disc config push --yes` (add `--delete-missing` only when
-   deletion is intended).
+Role flags: `--file`, `--name`, `--color` (hex, e.g. `FF0000`), `--hoist`,
+`--mentionable`, `--permissions` (comma-separated exact names), `--position`.
 
 ## Permission overwrites
 
@@ -134,11 +112,10 @@ replace the given side of a role's overwrite while preserving the other side.
 not managed by disc.
 
 ```bash
-disc config channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
-disc config channel update --channel 123456789 --no-overwrite Moderator
+disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
 ```
 
-To find exact permission names for `--permissions` / `--allow` / `--deny`:
+To find exact permission names:
 
 ```bash
 disc role perm list
@@ -178,9 +155,10 @@ invocation — even when the CLI thinks stdin is a terminal. Always pass `--agen
 (and use `--yes`/`--dry`) when running as an agent or in a script:
 
 ```bash
+disc server new --agent --token <token> --config-location local
 disc event add --agent --name "Coffee Break" --start "2026-01-15 19:00" --yes
-disc config push --agent --dry
-disc config push --agent --yes
+disc server push --agent --dry
+disc server push --agent --yes
 ```
 
 Rules:
@@ -188,8 +166,6 @@ Rules:
   error naming the missing field rather than launching a form or blocking.
 - With `--agent` and a mutating command that would otherwise confirm, pass
   `--yes` to apply or `--dry` to preview; otherwise it errors with instructions.
-- `--agent` also makes `disc init` require `--token <token>` instead of reading
-  stdin.
 
 ## Automation tips
 
@@ -201,15 +177,15 @@ Rules:
 - Write to a specific file per environment:
 
 ```bash
-disc config pull --file prod.json
-disc config role add --file prod.json --name Helper --permissions "Send Messages"
-disc config push --file prod.json --dry
-disc config push --agent --file prod.json --delete-missing --yes
+disc server pull --file prod.json
+disc role add --file prod.json --name Helper --permissions "Send Messages"
+disc server push --file prod.json --dry
+disc server push --agent --file prod.json --delete-missing --yes
 ```
 
 ## Rules of thumb
 
-- Always confirm with `disc status` first if unsure the bot is connected.
+- Always confirm with `disc status` first if unsure bots are configured.
 - Look up permission names with `disc role perm list` rather than guessing.
-- For destructive config pushes, always preview with `disc config push --dry`
+- For destructive config pushes, always preview with `disc server push --dry`
   first, and only add `--delete-missing` when deletion is intended.

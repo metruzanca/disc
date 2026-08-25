@@ -1,8 +1,8 @@
 # Declarative example: building a programming community
 
-This example builds a programming community server using the `disc config`
+This example builds a programming community server using the `disc server` and `disc channel/role`
 workflow. All edits are local — nothing touches the live server until
-`disc config push`.
+`disc server push`.
 
 ## 1. Snapshot the current server
 
@@ -10,7 +10,7 @@ Start by pulling the existing state. Even a fresh server has `@everyone` and a
 default channel.
 
 ```bash
-disc config pull
+disc server pull
 # → Wrote server.json (1 role, 1 channel)
 ```
 
@@ -19,17 +19,17 @@ edited by hand, or managed with the config subcommands below.
 
 ## 2. Add the roles
 
-Roles and channels are added with `disc config role add` and
-`disc config channel add`. These only edit the local file.
+Roles and channels are added with `disc role add` and
+`disc channel add`. These only edit the local file.
 
 ```bash
-disc config role add --name Member \
+disc role add --name Member \
   --permissions "View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links,Connect"
 
-disc config role add --name Moderator --color 3498DB --hoist \
+disc role add --name Moderator --color 3498DB --hoist \
   --permissions "Kick Members,Ban Members,Manage Messages,Manage Nicknames,Mute Members,Deafen Members,Move Members"
 
-disc config role add --name Admin --color E74C3C --hoist --mentionable \
+disc role add --name Admin --color E74C3C --hoist --mentionable \
   --permissions "Administrator"
 ```
 
@@ -42,10 +42,10 @@ Categories are regular channels with `--type category`. Reference them by name
 when placing child channels.
 
 ```bash
-disc config channel add --name Info --type category
-disc config channel add --name General --type category
-disc config channel add --name Languages --type category
-disc config channel add --name Voice --type category
+disc channel add --name Info --type category
+disc channel add --name General --type category
+disc channel add --name Languages --type category
+disc channel add --name Voice --type category
 ```
 
 ## 4. Add the channels
@@ -55,31 +55,31 @@ the same `Role:Perm,Perm` syntax as the imperative commands.
 
 ```bash
 # --- Info channels ---
-disc config channel add --name rules --category Info \
+disc channel add --name rules --category Info \
   --deny "@everyone:Send Messages"
 
-disc config channel add --name announcements --category Info \
+disc channel add --name announcements --category Info \
   --deny "@everyone:Send Messages,Add Reactions"
 
 # --- General channels ---
-disc config channel add --name general --category General \
+disc channel add --name general --category General \
   --allow "Member:View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links"
 
-disc config channel add --name off-topic --category General \
+disc channel add --name off-topic --category General \
   --allow "Member:View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links"
 
 # --- Language channels ---
-disc config channel add --name javascript --category Languages \
+disc channel add --name javascript --category Languages \
   --allow "Member:View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links"
 
-disc config channel add --name go --category Languages \
+disc channel add --name go --category Languages \
   --allow "Member:View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links"
 
-disc config channel add --name rust --category Languages \
+disc channel add --name rust --category Languages \
   --allow "Member:View Channels,Send Messages,Read Message History,Add Reactions,Attach Files,Embed Links"
 
 # --- Voice channels ---
-disc config channel add --name "General Voice" --type voice --category Voice \
+disc channel add --name "General Voice" --type voice --category Voice \
   --allow "Member:View Channels,Connect,Speak"
 ```
 
@@ -89,16 +89,16 @@ Update the categories to deny `@everyone` from viewing channels outside of
 `Info`. Child channels inherit these overwrites.
 
 ```bash
-disc config channel update --channel Info \
+disc channel update --channel Info \
   --deny "@everyone:Send Messages"
 
-disc config channel update --channel General \
+disc channel update --channel General \
   --deny "@everyone:View Channels"
 
-disc config channel update --channel Languages \
+disc channel update --channel Languages \
   --deny "@everyone:View Channels"
 
-disc config channel update --channel Voice \
+disc channel update --channel Voice \
   --deny "@everyone:View Channels,Connect"
 ```
 
@@ -286,7 +286,7 @@ Push reconciles the file with the live server. It prints a dry run showing every
 planned change, then asks for confirmation.
 
 ```bash
-disc config push
+disc server push
 ```
 
 ```text
@@ -317,7 +317,7 @@ Confirm and the entire community is created in one pass. Running push again
 produces no changes — the config is now the source of truth.
 
 ```bash
-disc config push
+disc server push
 # → Dry run for server.json:
 # →   Summary: 0 to create, 0 to update, 0 to delete
 ```
@@ -333,5 +333,5 @@ community from a single file. Because all edits are local, you can iterate on
 the config without touching Discord, preview the plan with `--dry`, and apply
 it all at once.
 
-For quick, one-off changes to a live server, use the `disc config` edit
+For quick, one-off changes to a live server, use the `disc channel`/`disc role` edit commands to make targeted changes and push.
 commands to make targeted changes and push.

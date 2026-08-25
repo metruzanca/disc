@@ -674,12 +674,263 @@ func roleIDByName(s *discordgo.Session, serverID string) (map[string]string, err
 // permission overwrites for them.
 var serverFlag string
 
+var (
+	channelAddFlags = struct {
+		file     string
+		name     string
+		typ      string
+		topic    string
+		nsfw     bool
+		category string
+		position int
+		allow    []string
+		deny     []string
+	}{}
+	channelUpFlags = struct {
+		file        string
+		channel     string
+		name        string
+		topic       string
+		nsfw        bool
+		category    string
+		allow       []string
+		deny        []string
+		noOverwrite []string
+	}{}
+	channelDelFlags = struct {
+		file    string
+		channel string
+	}{}
+	channelMoveFlags = struct {
+		file     string
+		channel  string
+		position int
+		category string
+	}{}
+)
+
+var channelAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a channel to the config",
+	Long: `Add a channel to the config file. The channel is not created on the
+server until 'disc server push' runs. If a channel with the same name already
+exists in the config, an error is returned.
+
+Examples:
+  disc channel add --name general
+  disc channel add --name voice-chat --type voice
+  disc channel add --name help --category Staff`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(channelAddFlags.file, "", true)
+		if err != nil {
+			return err
+		}
+		if channelAddFlags.name == "" {
+			return fmt.Errorf("--name is required")
+		}
+		for _, c := range cfg.Channels {
+			if c.Name == channelAddFlags.name {
+				return fmt.Errorf("channel '%s' already exists in config; use 'disc channel update' instead", c.Name)
+			}
+		}
+
+		typ := "text"
+		if channelAddFlags.typ != "" {
+			typ = channelAddFlags.typ
+		}
+		if _, ok := channelTypeFromName(typ); !ok {
+			return fmt.Errorf("unsupported channel type '%s'", typ)
+		}
+
+		ce := channelExport{
+			Name:     channelAddFlags.name,
+			Type:     typ,
+			Topic:    channelAddFlags.topic,
+			NSFW:     channelAddFlags.nsfw,
+			Parent:   channelAddFlags.category,
+			Position: channelAddFlags.position,
+		}
+		if len(channelAddFlags.allow) > 0 || len(channelAddFlags.deny) > 0 {
+			if err := applyConfigOverwrites(&ce, channelAddFlags.allow, channelAddFlags.deny); err != nil {
+				return err
+			}
+		}
+		cfg.Channels = append(cfg.Channels, ce)
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Added channel '%s' to %s\n", ce.Name, path)
+		return nil
+	},
+}
+
+var channelUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update a channel in the config",
+	Long: `Update a channel in the config file by its ID. The change is applied
+to the server on the next 'disc server push'. Use --category none to remove a
+channel from its category.
+
+Examples:
+  disc channel update --channel 123456789 --name new-name
+  disc channel update --channel 123456789 --topic "Welcome to the channel"
+  disc channel update --channel 123456789 --category Staff
+  disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+  disc channel update --channel 123456789 --no-overwrite Moderator`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(channelUpFlags.file, "", false)
+		if err != nil {
+			return err
+		}
+		i := findChannelInConfig(cfg, channelUpFlags.channel)
+		if i == -1 {
+			return fmt.Errorf("channel with ID '%s' not found in config", channelUpFlags.channel)
+		}
+
+		ce := &cfg.Channels[i]
+		if cmd.Flags().Changed("name") {
+			ce.Name = channelUpFlags.name
+		}
+		if cmd.Flags().Changed("topic") {
+			ce.Topic = channelUpFlags.topic
+		}
+		if cmd.Flags().Changed("nsfw") {
+			ce.NSFW = channelUpFlags.nsfw
+		}
+		if cmd.Flags().Changed("category") {
+			if channelUpFlags.category == "none" {
+				ce.Parent = ""
+			} else {
+				ce.Parent = channelUpFlags.category
+			}
+		}
+		if len(channelUpFlags.allow) > 0 || len(channelUpFlags.deny) > 0 {
+			if err := applyConfigOverwrites(ce, channelUpFlags.allow, channelUpFlags.deny); err != nil {
+				return err
+			}
+		}
+		if len(channelUpFlags.noOverwrite) > 0 {
+			removeConfigOverwrite(ce, channelUpFlags.noOverwrite)
+		}
+
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Updated channel '%s' in %s\n", ce.Name, path)
+		return nil
+	},
+}
+
+var channelDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a channel from the config",
+	Long: `Remove a channel from the config file by its ID. The channel is
+removed from the server on the next 'disc server push'.
+
+Example:
+  disc channel delete --channel 123456789`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(channelDelFlags.file, "", false)
+		if err != nil {
+			return err
+		}
+		i := findChannelInConfig(cfg, channelDelFlags.channel)
+		if i == -1 {
+			return fmt.Errorf("channel with ID '%s' not found in config", channelDelFlags.channel)
+		}
+		name := cfg.Channels[i].Name
+		cfg.Channels = append(cfg.Channels[:i], cfg.Channels[i+1:]...)
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Removed channel '%s' from %s\n", name, path)
+		return nil
+	},
+}
+
+var channelMoveCmd = &cobra.Command{
+	Use:   "move",
+	Short: "Move a channel within the config",
+	Long: `Move a channel to a new position or category in the config file. The
+change is applied to the server on the next 'disc server push'. Use
+--category none to remove a channel from its category.
+
+Examples:
+  disc channel move --channel 123456789 --position 0
+  disc channel move --channel 123456789 --category Staff
+  disc channel move --channel 123456789 --category Staff --position 3`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, path, err := loadConfigFileForEdit(channelMoveFlags.file, "", false)
+		if err != nil {
+			return err
+		}
+		i := findChannelInConfig(cfg, channelMoveFlags.channel)
+		if i == -1 {
+			return fmt.Errorf("channel with ID '%s' not found in config", channelMoveFlags.channel)
+		}
+
+		ce := &cfg.Channels[i]
+		if cmd.Flags().Changed("position") {
+			ce.Position = channelMoveFlags.position
+		}
+		if cmd.Flags().Changed("category") {
+			if channelMoveFlags.category == "none" {
+				ce.Parent = ""
+			} else {
+				ce.Parent = channelMoveFlags.category
+			}
+		}
+
+		if err := writeConfigFile(cfg, path); err != nil {
+			return err
+		}
+		util.Green.Printf("Moved channel '%s' in %s\n", ce.Name, path)
+		return nil
+	},
+}
+
 func init() {
 	channelCmd.AddCommand(channelListCmd)
 	channelCmd.AddCommand(channelShowCmd)
+	channelCmd.AddCommand(channelAddCmd)
+	channelCmd.AddCommand(channelUpdateCmd)
+	channelCmd.AddCommand(channelDeleteCmd)
+	channelCmd.AddCommand(channelMoveCmd)
 
-	channelListCmd.Flags().StringVar(&serverFlag, "server", "", "Server ID (defaults to configured server)")
+	channelListCmd.Flags().StringVar(&serverFlag, "server", "", "Server ID (defaults to active server)")
 
-	channelShowCmd.Flags().StringVar(&channelShowFlags.server, "server", "", "Server ID (defaults to configured server)")
+	channelShowCmd.Flags().StringVar(&channelShowFlags.server, "server", "", "Server ID (defaults to active server)")
 	channelShowCmd.Flags().StringVar(&channelShowFlags.channel, "channel", "", "Channel ID to show details for (required)")
+
+	channelAddCmd.Flags().StringVar(&channelAddFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	channelAddCmd.Flags().StringVar(&channelAddFlags.name, "name", "", "Channel name (required)")
+	channelAddCmd.Flags().StringVar(&channelAddFlags.typ, "type", "text", "Channel type: text, voice, category, news, stage, forum")
+	channelAddCmd.Flags().StringVar(&channelAddFlags.topic, "topic", "", "Channel topic (text channels only)")
+	channelAddCmd.Flags().BoolVar(&channelAddFlags.nsfw, "nsfw", false, "Mark channel as NSFW")
+	channelAddCmd.Flags().StringVar(&channelAddFlags.category, "category", "", "Category name to place channel under")
+	channelAddCmd.Flags().IntVar(&channelAddFlags.position, "position", 0, "Position within the category")
+	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
+	channelAddCmd.Flags().StringSliceVar(&channelAddFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
+
+	channelUpdateCmd.Flags().StringVar(&channelUpFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	channelUpdateCmd.Flags().StringVar(&channelUpFlags.channel, "channel", "", "Channel ID to update (required)")
+	channelUpdateCmd.Flags().StringVar(&channelUpFlags.name, "name", "", "New channel name")
+	channelUpdateCmd.Flags().StringVar(&channelUpFlags.topic, "topic", "", "Channel topic (text channels only)")
+	channelUpdateCmd.Flags().BoolVar(&channelUpFlags.nsfw, "nsfw", false, "Mark channel as NSFW")
+	channelUpdateCmd.Flags().StringVar(&channelUpFlags.category, "category", "", "Category name to move channel to (use 'none' to remove from category)")
+	channelUpdateCmd.Flags().StringSliceVar(&channelUpFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
+	channelUpdateCmd.Flags().StringSliceVar(&channelUpFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
+	channelUpdateCmd.Flags().StringSliceVar(&channelUpFlags.noOverwrite, "no-overwrite", nil, "Remove this role's permission overwrite (repeatable)")
+
+	channelDeleteCmd.Flags().StringVar(&channelDelFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	channelDeleteCmd.Flags().StringVar(&channelDelFlags.channel, "channel", "", "Channel ID to delete (required)")
+
+	channelMoveCmd.Flags().StringVar(&channelMoveFlags.file, "file", "", "Config file (defaults to resolved server.json)")
+	channelMoveCmd.Flags().StringVar(&channelMoveFlags.channel, "channel", "", "Channel ID to move (required)")
+	channelMoveCmd.Flags().IntVar(&channelMoveFlags.position, "position", 0, "New position within the category (0-indexed)")
+	channelMoveCmd.Flags().StringVar(&channelMoveFlags.category, "category", "", "Category name to move channel to (use 'none' to remove from category)")
 }
