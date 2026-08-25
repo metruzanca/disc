@@ -187,9 +187,10 @@ type channelExport struct {
 	Type       string                      `json:"type"`
 	Topic      string                      `json:"topic,omitempty"`
 	NSFW       bool                        `json:"nsfw,omitempty"`
-	Parent     string                      `json:"parent,omitempty"` // parent category name
+	Parent     string                      `json:"parent,omitempty"`
 	Position   int                         `json:"position,omitempty"`
 	Overwrites []permissionOverwriteExport `json:"overwrites,omitempty"`
+	Deleted    bool                        `json:"deleted,omitempty"`
 }
 
 // channelTypeName returns a canonical JSON name for a channel type. The bool
@@ -337,10 +338,8 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []c
 		}
 	}
 
-	desiredCatNames := map[string]bool{}
-	desiredChNames := map[string]bool{}
-	desiredChIDs := map[string]bool{}
-	var desiredCats, desiredChs []channelExport
+	var activeCats, activeChs []channelExport
+	var deletedCats, deletedChs []channelExport
 	for _, ce := range desired {
 		typ, ok := channelTypeFromName(ce.Type)
 		if !ok {
@@ -349,30 +348,44 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []c
 		if ce.Name == "" {
 			return nil, nil, fmt.Errorf("channel entry is missing a name")
 		}
+		if ce.Deleted {
+			if typ == discordgo.ChannelTypeGuildCategory {
+				deletedCats = append(deletedCats, ce)
+			} else {
+				deletedChs = append(deletedChs, ce)
+			}
+			continue
+		}
+		if typ == discordgo.ChannelTypeGuildCategory {
+			activeCats = append(activeCats, ce)
+		} else {
+			activeChs = append(activeChs, ce)
+		}
+	}
+
+	desiredCatNames := map[string]bool{}
+	desiredChNames := map[string]bool{}
+	desiredChIDs := map[string]bool{}
+	for _, ce := range activeCats {
+		desiredCatNames[ce.Name] = true
+	}
+	for _, ce := range activeChs {
 		if ce.ID != "" {
 			desiredChIDs[ce.ID] = true
 		}
-		if typ == discordgo.ChannelTypeGuildCategory {
-			desiredCatNames[ce.Name] = true
-			desiredCats = append(desiredCats, ce)
-		} else {
-			desiredChNames[ce.Name] = true
-			desiredChs = append(desiredChs, ce)
-		}
+		desiredChNames[ce.Name] = true
 	}
 
 	var changes []planAction
 	var ops []func() error
 
-	// liveCatID tracks category name -> ID as categories are created so child
-	// channels can resolve their parent during execution.
 	liveCatID := map[string]string{}
 	for name, cat := range existingCatByName {
 		liveCatID[name] = cat.ID
 	}
 
 	// 1. Create / update categories.
-	for _, dc := range desiredCats {
+	for _, dc := range activeCats {
 		dc := dc
 		var ec *discordgo.Channel
 		if dc.ID != "" {
@@ -409,7 +422,7 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []c
 	}
 
 	// 2. Create / update channels.
-	for _, dc := range desiredChs {
+	for _, dc := range activeChs {
 		dc := dc
 		typ, _ := channelTypeFromName(dc.Type)
 		parentID := resolveParentID(dc.Parent, liveCatID)
@@ -443,32 +456,101 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []c
 		}
 	}
 
+	// 3. Handle explicitly deleted channels.
+	deletedChannelIDs := map[string]bool{}
+	for _, dc := range deletedChs {
+		if dc.ID == "" {
+			return nil, nil, fmt.Errorf("cannot delete channel '%s': no ID set; update it first to ensure it has an ID", dc.Name)
+		}
+		ec := existingChByID[dc.ID]
+		if ec == nil {
+			ec = existingChByName[dc.Name]
+		}
+		if ec == nil {
+			continue
+		}
+		if isSystemChannel(guild, ec) {
+			continue
+		}
+		deletedChannelIDs[dc.ID] = true
+		changes = append(changes, planAction{"delete", fmt.Sprintf("channel '%s'", ec.Name)})
+		ops = append(ops, func() error {
+			alreadyDeleted, err := deleteChannel(s, dc.ID)
+			if err != nil {
+				return err
+			}
+			if alreadyDeleted {
+				deletedChannelIDs[dc.ID] = true
+			}
+			return nil
+		})
+	}
+
+	// 4. Handle explicitly deleted categories (children before parents).
+	deletedCategoryIDs := map[string]bool{}
+	for _, dc := range deletedCats {
+		if dc.ID == "" {
+			return nil, nil, fmt.Errorf("cannot delete category '%s': no ID set; update it first to ensure it has an ID", dc.Name)
+		}
+		ec := existingCatByID[dc.ID]
+		if ec == nil {
+			ec = existingCatByName[dc.Name]
+		}
+		if ec == nil {
+			continue
+		}
+		hasLiveChildren := false
+		for _, child := range live {
+			if child.ParentID == ec.ID && !deletedChannelIDs[child.ID] {
+				hasLiveChildren = true
+				break
+			}
+		}
+		if hasLiveChildren {
+			return nil, nil, fmt.Errorf("cannot delete category '%s': has live children that are not marked for deletion", ec.Name)
+		}
+		deletedCategoryIDs[dc.ID] = true
+		changes = append(changes, planAction{"delete", fmt.Sprintf("category '%s'", ec.Name)})
+		ops = append(ops, func() error {
+			alreadyDeleted, err := deleteChannel(s, dc.ID)
+			if err != nil {
+				return err
+			}
+			if alreadyDeleted {
+				deletedCategoryIDs[dc.ID] = true
+			}
+			return nil
+		})
+	}
+
 	if deleteMissing {
-		// 3. Delete channels not in the file (children before categories).
-		channelDeleteIDs := map[string]bool{}
+		// 5. Delete channels not in the file (children before categories).
 		var deleteChIDs []string
 		for name, ec := range existingChByName {
-			if desiredChNames[name] || desiredChIDs[ec.ID] || isSystemChannel(guild, ec) {
+			if desiredChNames[name] || desiredChIDs[ec.ID] || isSystemChannel(guild, ec) || deletedChannelIDs[ec.ID] {
 				continue
 			}
-			channelDeleteIDs[ec.ID] = true
+			deletedChannelIDs[ec.ID] = true
 			deleteChIDs = append(deleteChIDs, ec.ID)
 			changes = append(changes, planAction{"delete", fmt.Sprintf("channel '%s'", name)})
 		}
 		for _, id := range deleteChIDs {
 			id := id
-			ops = append(ops, func() error { return deleteChannel(s, id) })
+			ops = append(ops, func() error {
+				_, err := deleteChannel(s, id)
+				return err
+			})
 		}
 
-		// 4. Delete categories not in the file, only if none of their children
+		// 6. Delete categories not in the file, only if none of their children
 		// are being kept (deleting a category cascades to its children).
 		for name, ec := range existingCatByName {
-			if desiredCatNames[name] || desiredChIDs[ec.ID] {
+			if desiredCatNames[name] || desiredChIDs[ec.ID] || deletedCategoryIDs[ec.ID] {
 				continue
 			}
 			hasKeptChild := false
 			for _, child := range live {
-				if child.ParentID == ec.ID && !channelDeleteIDs[child.ID] {
+				if child.ParentID == ec.ID && !deletedChannelIDs[child.ID] {
 					hasKeptChild = true
 					break
 				}
@@ -479,7 +561,10 @@ func planChannelImport(s *discordgo.Session, guild *discordgo.Guild, desired []c
 			}
 			ec := ec
 			changes = append(changes, planAction{"delete", fmt.Sprintf("category '%s'", name)})
-			ops = append(ops, func() error { return deleteChannel(s, ec.ID) })
+			ops = append(ops, func() error {
+				_, err := deleteChannel(s, ec.ID)
+				return err
+			})
 		}
 	}
 
@@ -581,12 +666,16 @@ func editChannel(s *discordgo.Session, id string, edit *discordgo.ChannelEdit) (
 	return ch, nil
 }
 
-func deleteChannel(s *discordgo.Session, id string) error {
-	if _, err := s.ChannelDelete(id); err != nil {
-		return fmt.Errorf("failed to delete channel %s: %w", id, err)
+func deleteChannel(s *discordgo.Session, id string) (bool, error) {
+	_, err := s.ChannelDelete(id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "Unknown Channel") {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to delete channel %s: %w", id, err)
 	}
 	util.Green.Printf("Deleted channel %s\n", id)
-	return nil
+	return false, nil
 }
 
 // permTarget holds the allow/deny sets being applied to a single role, plus
@@ -826,8 +915,8 @@ Examples:
 var channelDeleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete a channel from the config",
-	Long: `Remove a channel from the config file by its ID. The channel is
-removed from the server on the next 'disc server push'.
+	Long: `Mark a channel for deletion in the config file by its ID. The channel
+is deleted from the server on the next 'disc server push'.
 
 Example:
   disc channel delete --channel 123456789`,
@@ -841,12 +930,15 @@ Example:
 		if i == -1 {
 			return fmt.Errorf("channel with ID '%s' not found in config", channelDelFlags.channel)
 		}
-		name := cfg.Channels[i].Name
-		cfg.Channels = append(cfg.Channels[:i], cfg.Channels[i+1:]...)
+		ch := &cfg.Channels[i]
+		if ch.ID == "" {
+			return fmt.Errorf("channel '%s' has no ID; update it first with 'disc channel update --channel %s' to ensure it has an ID", ch.Name, channelDelFlags.channel)
+		}
+		ch.Deleted = true
 		if err := writeConfigFile(cfg, path); err != nil {
 			return err
 		}
-		util.Green.Printf("Removed channel '%s' from %s\n", name, path)
+		util.Green.Printf("Marked channel '%s' for deletion in %s\n", ch.Name, path)
 		return nil
 	},
 }

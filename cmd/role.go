@@ -178,6 +178,7 @@ type roleExport struct {
 	Mentionable bool     `json:"mentionable,omitempty"`
 	Position    int      `json:"position,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+	Deleted     bool     `json:"deleted,omitempty"`
 }
 
 // exportRoles converts the server's live roles into config entries, skipping
@@ -252,12 +253,21 @@ func roleNeedsUpdate(r *discordgo.Role, want roleExport, wantPerms int64) bool {
 func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport, roles []*discordgo.Role, roleIDByName map[string]string, deleteMissing bool) ([]planAction, []func() error, error) {
 	permBits := permissionBitsByName()
 
-	desiredIDs := map[string]bool{}
-	desiredNames := map[string]bool{}
+	var activeRoles, deletedRoles []roleExport
 	for _, re := range desired {
 		if re.Name == "" {
 			return nil, nil, fmt.Errorf("role entry is missing a name")
 		}
+		if re.Deleted {
+			deletedRoles = append(deletedRoles, re)
+			continue
+		}
+		activeRoles = append(activeRoles, re)
+	}
+
+	desiredIDs := map[string]bool{}
+	desiredNames := map[string]bool{}
+	for _, re := range activeRoles {
 		if re.ID != "" {
 			desiredIDs[re.ID] = true
 		}
@@ -277,7 +287,7 @@ func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport,
 	var changes []planAction
 	var ops []func() error
 
-	for _, re := range desired {
+	for _, re := range activeRoles {
 		re := re
 		wantPerms, err := computeRolePerms(re.Permissions, permBits)
 		if err != nil {
@@ -292,7 +302,6 @@ func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport,
 			wantColor = c
 		}
 
-		// Resolve the matching live role: prefer ID, then name.
 		var er *discordgo.Role
 		if re.ID != "" {
 			er = existingByID[re.ID]
@@ -324,6 +333,57 @@ func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport,
 		}
 	}
 
+	// Handle explicitly deleted roles.
+	for _, re := range deletedRoles {
+		if re.ID == "" {
+			return nil, nil, fmt.Errorf("cannot delete role '%s': no ID set; update it first to ensure it has an ID", re.Name)
+		}
+		er := existingByID[re.ID]
+		if er == nil {
+			er = existingByName[re.Name]
+		}
+		if er == nil {
+			continue
+		}
+		if er.Name == "@everyone" {
+			return nil, nil, fmt.Errorf("cannot delete @everyone role")
+		}
+		hasMembers := false
+		var totalChecked int
+		for {
+			members, err := s.GuildMembers(serverID, "", 100)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to check members of role '%s': %w", er.Name, err)
+			}
+			if len(members) == 0 {
+				break
+			}
+			for _, m := range members {
+				for _, roleID := range m.Roles {
+					if roleID == er.ID {
+						hasMembers = true
+						break
+					}
+				}
+				if hasMembers {
+					break
+				}
+			}
+			totalChecked += len(members)
+			if hasMembers || len(members) < 100 || totalChecked >= 1000 {
+				break
+			}
+		}
+		if hasMembers {
+			return nil, nil, fmt.Errorf("cannot delete role '%s': role has members; move them to another role first", er.Name)
+		}
+		changes = append(changes, planAction{"delete", fmt.Sprintf("role '%s'", er.Name)})
+		ops = append(ops, func() error {
+			_, err := deleteRole(s, serverID, er.ID)
+			return err
+		})
+	}
+
 	if deleteMissing {
 		for name, r := range existingByName {
 			if desiredNames[name] || desiredIDs[r.ID] || name == "@everyone" {
@@ -331,11 +391,14 @@ func planRoleImport(s *discordgo.Session, serverID string, desired []roleExport,
 			}
 			r := r
 			changes = append(changes, planAction{"delete", fmt.Sprintf("role '%s'", name)})
-			ops = append(ops, func() error { return deleteRole(s, serverID, r.ID) })
+			ops = append(ops, func() error {
+				_, err := deleteRole(s, serverID, r.ID)
+				return err
+			})
 		}
 	}
 
-	if reorder, op := roleReorderOp(s, serverID, desired, roles); reorder {
+	if reorder, op := roleReorderOp(s, serverID, activeRoles, roles); reorder {
 		changes = append(changes, planAction{"update", "role order"})
 		ops = append(ops, op)
 	}
@@ -424,12 +487,16 @@ func editRole(s *discordgo.Session, serverID, roleID string, params *discordgo.R
 	return nil
 }
 
-func deleteRole(s *discordgo.Session, serverID, roleID string) error {
-	if err := s.GuildRoleDelete(serverID, roleID); err != nil {
-		return fmt.Errorf("failed to delete role %s: %w", roleID, err)
+func deleteRole(s *discordgo.Session, serverID, roleID string) (bool, error) {
+	err := s.GuildRoleDelete(serverID, roleID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "Unknown Role") {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to delete role %s: %w", roleID, err)
 	}
 	util.Green.Printf("Deleted role %s\n", roleID)
-	return nil
+	return false, nil
 }
 
 func parseHexColor(s string) (int, error) {
@@ -620,8 +687,8 @@ Examples:
 var roleDeleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete a role from the config",
-	Long: `Remove a role from the config file by its ID. The role is removed
-from the server on the next 'disc server push'.
+	Long: `Mark a role for deletion in the config file by its ID. The role
+is deleted from the server on the next 'disc server push'.
 
 Example:
   disc role delete --role 987654321`,
@@ -635,12 +702,15 @@ Example:
 		if i == -1 {
 			return fmt.Errorf("role with ID '%s' not found in config", roleDelFlags.role)
 		}
-		name := cfg.Roles[i].Name
-		cfg.Roles = append(cfg.Roles[:i], cfg.Roles[i+1:]...)
+		r := &cfg.Roles[i]
+		if r.ID == "" {
+			return fmt.Errorf("role '%s' has no ID; update it first with 'disc role update --role %s' to ensure it has an ID", r.Name, roleDelFlags.role)
+		}
+		r.Deleted = true
 		if err := writeConfigFile(cfg, path); err != nil {
 			return err
 		}
-		util.Green.Printf("Removed role '%s' from %s\n", name, path)
+		util.Green.Printf("Marked role '%s' for deletion in %s\n", r.Name, path)
 		return nil
 	},
 }

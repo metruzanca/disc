@@ -579,8 +579,43 @@ pass --yes to apply without prompting, or --dry to stop after the plan.`,
 				return err
 			}
 		}
+
+		origLen := len(cfg.Channels)
+		cfg.Channels = filterDeletedChannels(cfg.Channels)
+		if len(cfg.Channels) < origLen {
+			util.Green.Printf("Cleaned up %d deleted channel(s) from config\n", origLen-len(cfg.Channels))
+		}
+		origLen = len(cfg.Roles)
+		cfg.Roles = filterDeletedRoles(cfg.Roles)
+		if len(cfg.Roles) < origLen {
+			util.Green.Printf("Cleaned up %d deleted role(s) from config\n", origLen-len(cfg.Roles))
+		}
+		if err := writeConfigFile(&cfg, file); err != nil {
+			return err
+		}
+
 		return nil
 	},
+}
+
+func filterDeletedChannels(channels []channelExport) []channelExport {
+	var result []channelExport
+	for _, ch := range channels {
+		if !ch.Deleted {
+			result = append(result, ch)
+		}
+	}
+	return result
+}
+
+func filterDeletedRoles(roles []roleExport) []roleExport {
+	var result []roleExport
+	for _, r := range roles {
+		if !r.Deleted {
+			result = append(result, r)
+		}
+	}
+	return result
 }
 
 func init() {

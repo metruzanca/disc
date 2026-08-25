@@ -35,7 +35,7 @@ go install github.com/metruzanca/disc@latest
 
 ## Agent skill
 
-Install the agent skill (for use with opencode and other skill-aware agents)
+Install the agent skill (for use with opencode, Claude Code, Codex and other skill-aware agents)
 with:
 
 ```bash
@@ -94,27 +94,11 @@ Flags control this for scripting and agents:
   a required parameter is missing, the command returns a descriptive error
   naming the missing field instead of blocking.
 
-## Config file
-
-The server config is a JSON file containing your server's roles and channels:
-
-```json
-{
-  "server_id": "...",
-  "bot": "...",
-  "roles": [...],
-  "channels": [...]
-}
-```
-
 ### Server setup commands
 
 ```bash
 # Add a new bot and server
 disc server new
-
-# Switch the active server (prints a 'cd' hint for local configs)
-disc server switch
 
 # List all managed bots and servers
 disc server list
@@ -122,17 +106,14 @@ disc server list
 # Snapshot the live server into the config file
 disc server pull
 
-# Apply the config to the live server
-disc server push
+# Make changes to roles & channels
+...
 
 # Preview what would change
 disc server push --dry
 
-# Apply without prompting
-disc server push --yes
-
-# Also delete server resources absent from the config file
-disc server push --delete-missing --yes
+# Apply the config to the live server
+disc server push
 ```
 
 ### Edit the config
