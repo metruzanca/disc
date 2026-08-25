@@ -15,18 +15,6 @@ func IsTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
-// CategoryOption is a selectable channel category.
-type CategoryOption struct {
-	Name string
-	ID   string
-}
-
-// RoleOption is a selectable role.
-type RoleOption struct {
-	Name string
-	ID   string
-}
-
 // ChannelOption is a selectable channel for hosting events.
 type ChannelOption struct {
 	Name  string
@@ -47,13 +35,4 @@ func (c conditional) Skip() bool {
 // onlyWhen wraps f so it is only rendered when cond is true.
 func onlyWhen(f huh.Field, cond func() bool) huh.Field {
 	return conditional{Field: f, show: cond}
-}
-
-// permOptions builds huh options from a list of permission names.
-func permOptions(names []string) []huh.Option[string] {
-	opts := make([]huh.Option[string], 0, len(names))
-	for _, n := range names {
-		opts = append(opts, huh.NewOption(n, n))
-	}
-	return opts
 }

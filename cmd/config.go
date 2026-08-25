@@ -8,11 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/metruzanca/disc/internal/config"
 	"github.com/metruzanca/disc/internal/util"
 	"github.com/spf13/cobra"
 )
-
-const defaultConfigFile = "server.json"
 
 // serverConfigFile is the declarative, combined server config: both roles and
 // channels in one JSON document. Entries carry their server IDs so edits can
@@ -20,9 +19,9 @@ const defaultConfigFile = "server.json"
 // of the server the config was pulled from, so push can warn when it is
 // applied to a different server.
 type serverConfigFile struct {
-	Server   string           `json:"server_id,omitempty"`
-	Roles    []roleExport     `json:"roles"`
-	Channels []channelExport  `json:"channels"`
+	Server   string          `json:"server_id,omitempty"`
+	Roles    []roleExport    `json:"roles"`
+	Channels []channelExport `json:"channels"`
 }
 
 var configCmd = &cobra.Command{
@@ -49,11 +48,15 @@ func readConfigFile(path string, cfg *serverConfigFile) error {
 	return nil
 }
 
-// writeConfigFile marshals a server config to JSON and writes it to path.
+// writeConfigFile marshals a server config to JSON and writes it to path,
+// creating parent directories as needed.
 func writeConfigFile(cfg *serverConfigFile, path string) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to create dir for %s: %w", path, err)
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
@@ -61,12 +64,57 @@ func writeConfigFile(cfg *serverConfigFile, path string) error {
 	return nil
 }
 
-// configFileOr returns the --file value or the default server.json name.
-func configFileOr(flagValue string) string {
+// resolveConfigFile returns the config file path for the given server hint.
+// The server hint may be "" if unknown; resolution will attempt to determine it
+// from prefs or a single servers/ directory.
+func resolveConfigFile(flagFile, serverHint string) (string, error) {
+	if flagFile != "" {
+		return flagFile, nil
+	}
+
+	if _, err := os.Stat("server.json"); err == nil {
+		return "server.json", nil
+	}
+
+	prefs, err := config.LoadPrefs()
+	if err != nil {
+		return "", err
+	}
+
+	loc := prefs.ServerConfigLocation
+	if envLoc := os.Getenv(config.ConfigLocationEnv); envLoc != "" {
+		loc = envLoc
+	}
+
+	if loc == "global" || loc == "" {
+		sid := serverHint
+		if sid == "" {
+			sid = os.Getenv(config.ServerIDEnv)
+		}
+		if sid == "" {
+			sid = config.SingleServerDir()
+		}
+		if sid != "" {
+			p, err := config.ServerConfigFile(sid)
+			if err != nil {
+				return "", err
+			}
+			return p, nil
+		}
+	}
+
+	return "server.json", nil
+}
+
+// resolveServerHint returns a server ID hint from flag/env/single-dir.
+func resolveServerHint(flagValue string) string {
 	if flagValue != "" {
 		return flagValue
 	}
-	return defaultConfigFile
+	if sid := os.Getenv(config.ServerIDEnv); sid != "" {
+		return sid
+	}
+	return config.SingleServerDir()
 }
 
 var (
@@ -104,7 +152,10 @@ Examples:
 			return err
 		}
 
-		out := configFileOr(configPullFlags.file)
+		out, err := resolveConfigFile(configPullFlags.file, serverID)
+		if err != nil {
+			return err
+		}
 		if err := writeConfigFile(&cfg, out); err != nil {
 			return err
 		}
@@ -142,17 +193,20 @@ Examples:
   disc config push --dry`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		file := configFileOr(configPushFlags.file)
-		var cfg serverConfigFile
-		if err := readConfigFile(file, &cfg); err != nil {
-			return err
-		}
-
 		client, serverID, err := newClientAndServer(configPushFlags.server)
 		if err != nil {
 			return err
 		}
 		defer client.Close()
+
+		file, err := resolveConfigFile(configPushFlags.file, serverID)
+		if err != nil {
+			return err
+		}
+		var cfg serverConfigFile
+		if err := readConfigFile(file, &cfg); err != nil {
+			return err
+		}
 
 		s := client.Session()
 		guild, err := s.Guild(serverID)
@@ -171,8 +225,6 @@ Examples:
 			return fmt.Errorf("failed to list roles: %w", err)
 		}
 
-		// roleIDByName maps role names to IDs and is updated as roles are
-		// created so channel overwrites can resolve new roles during the push.
 		roleIDByName := map[string]string{}
 		for _, r := range roles {
 			if r.ID == serverID {

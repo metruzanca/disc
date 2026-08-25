@@ -10,6 +10,7 @@ import (
 var (
 	configChannelAddFlags = struct {
 		file     string
+		server   string
 		name     string
 		typ      string
 		topic    string
@@ -21,6 +22,7 @@ var (
 	}{}
 	configChannelUpFlags = struct {
 		file        string
+		server      string
 		channel     string
 		name        string
 		topic       string
@@ -32,10 +34,12 @@ var (
 	}{}
 	configChannelDelFlags = struct {
 		file    string
+		server  string
 		channel string
 	}{}
 	configChannelMoveFlags = struct {
 		file     string
+		server   string
 		channel  string
 		position int
 		category string
@@ -113,7 +117,8 @@ Examples:
   disc config channel add --name help --category Staff`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configChannelAddFlags.file)
+		hint := resolveServerHint(configChannelAddFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configChannelAddFlags.file, hint, true)
 		if err != nil {
 			return err
 		}
@@ -171,7 +176,8 @@ Examples:
   disc config channel update --channel 123456789 --no-overwrite Moderator`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configChannelUpFlags.file)
+		hint := resolveServerHint(configChannelUpFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configChannelUpFlags.file, hint, false)
 		if err != nil {
 			return err
 		}
@@ -224,7 +230,8 @@ Example:
   disc config channel delete --channel 123456789`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configChannelDelFlags.file)
+		hint := resolveServerHint(configChannelDelFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configChannelDelFlags.file, hint, false)
 		if err != nil {
 			return err
 		}
@@ -255,7 +262,8 @@ Examples:
   disc config channel move --channel 123456789 --category Staff --position 3`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configChannelMoveFlags.file)
+		hint := resolveServerHint(configChannelMoveFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configChannelMoveFlags.file, hint, false)
 		if err != nil {
 			return err
 		}
@@ -290,7 +298,8 @@ func init() {
 	configChannelCmd.AddCommand(configChannelDeleteCmd)
 	configChannelCmd.AddCommand(configChannelMoveCmd)
 
-	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.file, "file", "", "Config file (defaults to server.json)")
+	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.server, "server", "", "Server ID (for global config location)")
 	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.name, "name", "", "Channel name (required)")
 	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.typ, "type", "text", "Channel type: text, voice, category, news, stage, forum")
 	configChannelAddCmd.Flags().StringVar(&configChannelAddFlags.topic, "topic", "", "Channel topic (text channels only)")
@@ -300,7 +309,8 @@ func init() {
 	configChannelAddCmd.Flags().StringSliceVar(&configChannelAddFlags.allow, "allow", nil, "Permission overwrite to allow, as 'Role:Perm,Perm' (repeatable)")
 	configChannelAddCmd.Flags().StringSliceVar(&configChannelAddFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 
-	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.file, "file", "", "Config file (defaults to server.json)")
+	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.server, "server", "", "Server ID (for global config location)")
 	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.channel, "channel", "", "Channel ID to update (required)")
 	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.name, "name", "", "New channel name")
 	configChannelUpdateCmd.Flags().StringVar(&configChannelUpFlags.topic, "topic", "", "Channel topic (text channels only)")
@@ -310,10 +320,12 @@ func init() {
 	configChannelUpdateCmd.Flags().StringSliceVar(&configChannelUpFlags.deny, "deny", nil, "Permission overwrite to deny, as 'Role:Perm,Perm' (repeatable)")
 	configChannelUpdateCmd.Flags().StringSliceVar(&configChannelUpFlags.noOverwrite, "no-overwrite", nil, "Remove this role's permission overwrite (repeatable)")
 
-	configChannelDeleteCmd.Flags().StringVar(&configChannelDelFlags.file, "file", "", "Config file (defaults to server.json)")
+	configChannelDeleteCmd.Flags().StringVar(&configChannelDelFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configChannelDeleteCmd.Flags().StringVar(&configChannelDelFlags.server, "server", "", "Server ID (for global config location)")
 	configChannelDeleteCmd.Flags().StringVar(&configChannelDelFlags.channel, "channel", "", "Channel ID to delete (required)")
 
-	configChannelMoveCmd.Flags().StringVar(&configChannelMoveFlags.file, "file", "", "Config file (defaults to server.json)")
+	configChannelMoveCmd.Flags().StringVar(&configChannelMoveFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configChannelMoveCmd.Flags().StringVar(&configChannelMoveFlags.server, "server", "", "Server ID (for global config location)")
 	configChannelMoveCmd.Flags().StringVar(&configChannelMoveFlags.channel, "channel", "", "Channel ID to move (required)")
 	configChannelMoveCmd.Flags().IntVar(&configChannelMoveFlags.position, "position", 0, "New position within the category (0-indexed)")
 	configChannelMoveCmd.Flags().StringVar(&configChannelMoveFlags.category, "category", "", "Category name to move channel to (use 'none' to remove from category)")

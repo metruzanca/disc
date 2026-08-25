@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/metruzanca/disc/internal/ui"
 	"github.com/metruzanca/disc/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -167,227 +165,6 @@ func permissionNameStrings() []string {
 		out = append(out, p.name)
 	}
 	return out
-}
-
-// splitPermsOrNil splits a comma-separated permission string into a slice,
-// returning nil on error or when empty (used to prefill the permissions form).
-func splitPermsOrNil(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	perms, err := splitPermissions(s)
-	if err != nil {
-		return nil
-	}
-	return perms
-}
-
-var (
-	roleAddFlags = struct {
-		server      string
-		name        string
-		color       string
-		hoist       bool
-		mentionable bool
-		permissions string
-		yes         bool
-		dry         bool
-	}{}
-)
-
-var roleAddCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Create a new role",
-	Long: `Create a new role in a Discord server.
-
-Examples:
-  disc role add --server 123456789 --name "Moderator"
-  disc role add --server 123456789 --name "VIP" --color FF0000 --hoist
-  disc role add --server 123456789 --name "Helper" --mentionable
-  disc role add --server 123456789 --name "Moderator" --permissions "Kick Members,Ban Members"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, serverID, err := newClientAndServer(roleAddFlags.server)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-		if interactive(roleAddFlags.yes, roleAddFlags.dry) {
-			prefill := splitPermsOrNil(roleAddFlags.permissions)
-			res, err := ui.RoleForm(roleAddFlags.name, roleAddFlags.color, roleAddFlags.hoist, roleAddFlags.mentionable, prefill, permissionNameStrings())
-			if err != nil {
-				return err
-			}
-			if res == nil {
-				util.Yellow.Println("Aborted.")
-				return nil
-			}
-			roleAddFlags.name = res.Name
-			roleAddFlags.color = res.Color
-			roleAddFlags.hoist = res.Hoist
-			roleAddFlags.mentionable = res.Mentionable
-			roleAddFlags.permissions = strings.Join(res.Permissions, ",")
-		}
-		if roleAddFlags.name == "" {
-			return fmt.Errorf("--name is required")
-		}
-
-		proceed, err := confirmRun(fmt.Sprintf("Create role '%s' in server %s?", roleAddFlags.name, serverID), roleAddFlags.yes, roleAddFlags.dry)
-		if err != nil {
-			return err
-		}
-		if !proceed {
-			return nil
-		}
-
-		params := &discordgo.RoleParams{
-			Name:        roleAddFlags.name,
-			Hoist:       &roleAddFlags.hoist,
-			Mentionable: &roleAddFlags.mentionable,
-		}
-		if roleAddFlags.color != "" {
-			c, err := parseHexColor(roleAddFlags.color)
-			if err != nil {
-				return err
-			}
-			params.Color = &c
-		}
-		if cmd.Flags().Changed("permissions") || roleAddFlags.permissions != "" {
-			perms, err := splitPermissions(roleAddFlags.permissions)
-			if err != nil {
-				return err
-			}
-			bits, err := computeRolePerms(perms, permissionBitsByName())
-			if err != nil {
-				return err
-			}
-			params.Permissions = &bits
-		}
-
-		role, err := client.Session().GuildRoleCreate(serverID, params)
-		if err != nil {
-			return fmt.Errorf("failed to create role: %w", err)
-		}
-		util.Green.Printf("Created role %s (%s)\n", role.Name, role.ID)
-		return nil
-	},
-}
-
-var (
-	roleUpdateFlags = struct {
-		server      string
-		role        string
-		name        string
-		color       string
-		hoist       bool
-		mentionable bool
-		permissions string
-		yes         bool
-		dry         bool
-	}{}
-)
-
-var roleUpdateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update a role",
-	Long: `Update an existing role's properties.
-
-Examples:
-  disc role update --server 123456789 --role 987654321 --name "New Name"
-  disc role update --server 123456789 --role 987654321 --color 00FF00
-  disc role update --server 123456789 --role 987654321 --hoist=false
-  disc role update --server 123456789 --role 987654321 --permissions "Kick Members,Ban Members"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if roleUpdateFlags.role == "" {
-			return fmt.Errorf("--role is required")
-		}
-		client, serverID, err := newClientAndServer(roleUpdateFlags.server)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		proceed, err := confirmRun(fmt.Sprintf("Update role %s?", roleUpdateFlags.role), roleUpdateFlags.yes, roleUpdateFlags.dry)
-		if err != nil {
-			return err
-		}
-		if !proceed {
-			return nil
-		}
-
-		params := &discordgo.RoleParams{}
-		if roleUpdateFlags.name != "" {
-			params.Name = roleUpdateFlags.name
-		}
-		if roleUpdateFlags.color != "" {
-			c, err := parseHexColor(roleUpdateFlags.color)
-			if err != nil {
-				return err
-			}
-			params.Color = &c
-		}
-		if cmd.Flags().Changed("hoist") {
-			params.Hoist = &roleUpdateFlags.hoist
-		}
-		if cmd.Flags().Changed("mentionable") {
-			params.Mentionable = &roleUpdateFlags.mentionable
-		}
-		if cmd.Flags().Changed("permissions") {
-			perms, err := splitPermissions(roleUpdateFlags.permissions)
-			if err != nil {
-				return err
-			}
-			bits, err := computeRolePerms(perms, permissionBitsByName())
-			if err != nil {
-				return err
-			}
-			params.Permissions = &bits
-		}
-
-		role, err := client.Session().GuildRoleEdit(serverID, roleUpdateFlags.role, params)
-		if err != nil {
-			return fmt.Errorf("failed to update role: %w", err)
-		}
-		util.Green.Printf("Updated role %s (%s)\n", role.Name, role.ID)
-		return nil
-	},
-}
-
-var (
-	roleDeleteFlags = struct {
-		server string
-		role   string
-		yes    bool
-		dry    bool
-	}{}
-)
-
-var roleDeleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete a role",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if roleDeleteFlags.role == "" {
-			return fmt.Errorf("--role is required")
-		}
-		client, serverID, err := newClientAndServer(roleDeleteFlags.server)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		proceed, err := confirmRun(fmt.Sprintf("Delete role %s?", roleDeleteFlags.role), roleDeleteFlags.yes, roleDeleteFlags.dry)
-		if err != nil {
-			return err
-		}
-		if !proceed {
-			return nil
-		}
-
-		if err := client.Session().GuildRoleDelete(serverID, roleDeleteFlags.role); err != nil {
-			return fmt.Errorf("failed to delete role: %w", err)
-		}
-		util.Green.Printf("Deleted role %s\n", roleDeleteFlags.role)
-		return nil
-	},
 }
 
 // roleExport is one role in the server config JSON.
@@ -688,9 +465,6 @@ Example:
 func init() {
 	roleCmd.AddCommand(roleListCmd)
 	roleCmd.AddCommand(roleShowCmd)
-	roleCmd.AddCommand(roleAddCmd)
-	roleCmd.AddCommand(roleUpdateCmd)
-	roleCmd.AddCommand(roleDeleteCmd)
 	roleCmd.AddCommand(rolePermCmd)
 	rolePermCmd.AddCommand(rolePermListCmd)
 
@@ -698,28 +472,4 @@ func init() {
 
 	roleShowCmd.Flags().StringVar(&roleShowFlags.server, "server", "", "Server ID (defaults to configured server)")
 	roleShowCmd.Flags().StringVar(&roleShowFlags.role, "role", "", "Role ID to show details for (required)")
-
-	roleAddCmd.Flags().StringVar(&roleAddFlags.server, "server", "", "Server ID (defaults to configured server)")
-	roleAddCmd.Flags().StringVar(&roleAddFlags.name, "name", "", "Role name (required)")
-	roleAddCmd.Flags().StringVar(&roleAddFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
-	roleAddCmd.Flags().BoolVar(&roleAddFlags.hoist, "hoist", false, "Display role separately in member list")
-	roleAddCmd.Flags().BoolVar(&roleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
-	roleAddCmd.Flags().StringVar(&roleAddFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
-	roleAddCmd.Flags().BoolVarP(&roleAddFlags.yes, "yes", "y", false, "Skip confirmation prompt")
-	roleAddCmd.Flags().BoolVar(&roleAddFlags.dry, "dry", false, "Show what would happen without making changes")
-
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.server, "server", "", "Server ID (defaults to configured server)")
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.role, "role", "", "Role ID to update (required)")
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.name, "name", "", "New role name")
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
-	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.hoist, "hoist", false, "Display role separately in member list")
-	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
-	roleUpdateCmd.Flags().StringVar(&roleUpdateFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
-	roleUpdateCmd.Flags().BoolVarP(&roleUpdateFlags.yes, "yes", "y", false, "Skip confirmation prompt")
-	roleUpdateCmd.Flags().BoolVar(&roleUpdateFlags.dry, "dry", false, "Show what would happen without making changes")
-
-	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.server, "server", "", "Server ID (defaults to configured server)")
-	roleDeleteCmd.Flags().StringVar(&roleDeleteFlags.role, "role", "", "Role ID to delete (required)")
-	roleDeleteCmd.Flags().BoolVarP(&roleDeleteFlags.yes, "yes", "y", false, "Skip confirmation prompt")
-	roleDeleteCmd.Flags().BoolVar(&roleDeleteFlags.dry, "dry", false, "Show what would happen without making changes")
 }

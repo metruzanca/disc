@@ -5,12 +5,10 @@ description: Use when managing a Discord server through the `disc` CLI (a Go bot
 
 # disc
 
-`disc` is a CLI for managing Discord servers via a bot. It has two modes:
-
-- **Imperative** — run a command and it changes the server immediately
-  (`disc channel add`, `disc role update`).
-- **Declarative** — describe the desired state in a `server.json` file with
-  `disc config`, then apply it with `disc config push`.
+`disc` is a CLI for managing Discord servers via a bot. Roles and channels are
+managed **declaratively** via `disc config` commands (edit a `server.json` file,
+then apply with `disc config push`). Scheduled events are managed
+**imperatively** via `disc event` commands.
 
 Before running anything, confirm the bot is configured:
 
@@ -22,23 +20,24 @@ disc --help        # every subcommand also has its own --help
 ## Configuration
 
 `disc` is configured through environment variables, optionally loaded from a
-local `.env` file in the current directory.
+local `.env` file, or from the disc config directory (`~/.config/disc/servers/<id>/`).
 
 - `DISCORD_TOKEN` — bot token (required)
 - `DISCORD_SERVER_ID` — default server ID
+- `DISC_CONFIG_LOCATION` — `local` (current dir `server.json`) or `global` (disc config dir)
 
-Set up from scratch with `disc init` (writes the token to `.env`).
+Set up from scratch with `disc init` (prompts for token and config location).
 
 The server ID is resolved in this order: the `--server` flag → `DISCORD_SERVER_ID`
-→ the single server the bot belongs to. If the bot is in more than one server
-and no ID is given, an explicit `--server` or env var is required.
+→ a local `server.json` in the current directory → the single server in the disc
+config directory. If the bot is in more than one server and no ID is given,
+an explicit `--server` or env var is required.
 
 ## Confirmation prompts & interactive forms
 
 Humans run mutating commands with no flags and get an interactive experience:
-a `y/N` confirmation, and a full prefilled form (with permission multi-selects)
-for the `add` commands. Agents should use the flag-based interface so nothing
-blocks on stdin:
+a `y/N` confirmation, and a full prefilled form for `event add`. Agents should use
+the flag-based interface so nothing blocks on stdin:
 
 - `--yes` / `-y` — skip the prompt and apply immediately.
 - `--dry` — print what would happen and exit without prompting or changing
@@ -50,81 +49,27 @@ blocks on stdin:
 Agent workflow for any mutating command: run it with `--dry` to preview, ask
 the user to confirm, then run it again with `--yes` to apply.
 
-## Imperative commands
-
-All server commands accept `--server <id>`.
-
-### Channels
+## Channels (read-only)
 
 ```bash
 disc channel list                       # grouped by category
-disc channel add --name general
-disc channel add --name voice-chat --type voice
-disc channel add --name help --category 987654321
-disc channel update --channel 123456789 --name new-name
-disc channel update --channel 123456789 --topic "Welcome"
-disc channel update --channel 123456789 --category 987654321
-disc channel update --channel 123456789 --nsfw
-disc channel move --channel 111111111 --position 0
-disc channel move --channel 111111111 --category 222222222 --position 3
-disc channel show --channel 123456789     # details incl. permission overwrites
-disc channel delete --channel 123456789
+disc channel show --channel 123456789   # details incl. permission overwrites
 ```
 
-Channel flags: `--name`, `--type` (`text`|`voice`, default `text`), `--topic`,
-`--category` (use `none` to unset), `--nsfw`, `--position` (0-indexed),
-`--allow`/`--deny` (permission overwrites, see below).
-
-### Roles
+## Roles (read-only)
 
 ```bash
 disc role list                          # sorted by hierarchy, highest first
 disc role show --role 987654321
-disc role add --name "Moderator"
-disc role add --name "VIP" --color FF0000 --hoist
-disc role add --name "Helper" --mentionable
-disc role add --name "Moderator" --permissions "Kick Members,Ban Members"
-disc role update --role 987654321 --name "New Name"
-disc role update --role 987654321 --color 00FF00
-disc role update --role 987654321 --hoist=false
-disc role delete --role 987654321
 disc role perm list                     # exact names for --permissions
 ```
-
-Role flags: `--name`, `--color` (hex, e.g. `FF0000`), `--hoist`, `--mentionable`,
-`--permissions` (comma-separated exact names).
-
-### Scheduled events
-
-```bash
-disc event list                         # add --active for scheduled/active only
-disc event show --event 987654321
-
-# Voice event hosted in a channel (default type)
-disc event add --name "Coffee Break" --start "2026-01-15 19:00" --channel 123456789
-
-# External event (requires --location and --end)
-disc event add --name "Meetup" --type external --location "Local Cafe" \
-  --start "2026-01-15 19:00" --end "2026-01-15 21:00"
-
-disc event update --event 987654321 --name "New Name"
-disc event update --event 987654321 --status active
-disc event delete --event 987654321
-
-# Copy an event, overriding any property with the add flags
-disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-01-22 19:00"
-```
-
-Event flags: `--name`, `--description`, `--start`, `--end`, `--channel`,
-`--type` (`voice`|`stage`|`external`), `--location`, `--status`.
-
-Event `--status` lifecycle: `scheduled`, `active`, `completed`, `canceled`.
-`external` events require `--location` and `--end`.
 
 ## Declarative config
 
 Manage roles and channels as JSON in a single `server.json` (commit this file
-and reapply it for reproducible server state).
+and reapply it for reproducible server state). Use `disc config role` and
+`disc config channel` subcommands to edit the file; nothing changes on the
+server until you run `disc config push`.
 
 ```bash
 # Snapshot the live server (roles + channels together)
@@ -150,6 +95,9 @@ disc config push --dry
 disc config push --yes
 disc config push --agent --file server.json --delete-missing --yes
 ```
+
+All `disc config role/channel` commands accept `--server <id>` to target a
+specific server and `--file <path>` to use a specific config file.
 
 Config flags: `--file` (defaults to `server.json`), `--server`, and on push
 `--delete-missing` (non-reversible), `--yes`, `--dry`, and `--agent`.
@@ -186,7 +134,7 @@ replace the given side of a role's overwrite while preserving the other side.
 not managed by disc.
 
 ```bash
-disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
+disc config channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
 disc config channel update --channel 123456789 --no-overwrite Moderator
 ```
 
@@ -196,6 +144,33 @@ To find exact permission names for `--permissions` / `--allow` / `--deny`:
 disc role perm list
 ```
 
+## Scheduled events (imperative)
+
+```bash
+disc event list                         # add --active for scheduled/active only
+disc event show --event 987654321
+
+# Voice event hosted in a channel (default type)
+disc event add --name "Coffee Break" --start "2026-01-15 19:00" --channel 123456789
+
+# External event (requires --location and --end)
+disc event add --name "Meetup" --type external --location "Local Cafe" \
+  --start "2026-01-15 19:00" --end "2026-01-15 21:00"
+
+disc event update --event 987654321 --name "New Name"
+disc event update --event 987654321 --status active
+disc event delete --event 987654321
+
+# Copy an event, overriding any property with the add flags
+disc event copy --event 987654321 --name "Coffee Break (Week 2)" --start "2026-01-22 19:00"
+```
+
+Event flags: `--name`, `--description`, `--start`, `--end`, `--channel`,
+`--type` (`voice`|`stage`|`external`), `--location`, `--status`.
+
+Event `--status` lifecycle: `scheduled`, `active`, `completed`, `canceled`.
+`external` events require `--location` and `--end`.
+
 ## Agent mode
 
 Pass `--agent` on any command to guarantee zero interactivity for the whole
@@ -203,8 +178,6 @@ invocation — even when the CLI thinks stdin is a terminal. Always pass `--agen
 (and use `--yes`/`--dry`) when running as an agent or in a script:
 
 ```bash
-disc role add --agent --name "Moderator" --permissions "Kick Members,Ban Members" --yes
-disc channel add --agent --name general --yes
 disc event add --agent --name "Coffee Break" --start "2026-01-15 19:00" --yes
 disc config push --agent --dry
 disc config push --agent --yes

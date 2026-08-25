@@ -4,22 +4,16 @@ A CLI for managing Discord servers via a bot.
 
 Manage Discord servers, channels, roles, and scheduled events. Designed for automation and agent-based workflows.
 
-The CLI supports two ways to work with the server:
-
-- **Imperative** — run a command and it changes the server immediately (e.g.
-  `disc channel add`, `disc role update`).
-- **Declarative** — describe the desired state in a `server.json` file with
-  `disc config`, then apply it with `disc config push`.
+disc uses a **declarative** approach: you edit a local `server.json` file with `disc config role/channel` commands, then apply it to the server with `disc config push`. All changes are saved to the config file so nothing is lost.
 
 ## Features
 
-- **Two usage modes** — imperative commands for one-off changes, or declarative `disc config` for reproducible, versionable server state
+- **Declarative config** — describe your server in `server.json`, apply with `disc config push`
 - **Server discovery** — list channels and roles to see the current structure of a server
-- **Channel management** — create, update, delete, and move channels
-- **Role management** — create, update, delete, and inspect roles
-- **Scheduled event management** — create, update, delete, and inspect scheduled events
+- **Channel/role inspection** — read-only `channel list`, `role list`, etc.
+- **Scheduled event management** — imperative commands for events (create, update, delete, copy)
 - **Automation friendly** — non-interactive via `--yes` for scripted use
-- **Flexible config** — token and server ID via environment variables or a local `.env` file
+- **Flexible config** — token and server ID via environment variables, local `.env`, or disc config directory (`~/.config/disc/servers/<id>/`)
 
 ## Requirements
 
@@ -49,13 +43,23 @@ npx skills add metruzanca/disc
 
 ## Configuration
 
-`disc` is configured entirely through environment variables, optionally
-loaded from a local `.env` file in the directory you run it from. 
+disc is configured through environment variables, optionally loaded from a
+local `.env` file, or from the disc config directory.
 
 ### Environment variables
 
 - `DISCORD_TOKEN` — bot token (required)
 - `DISCORD_SERVER_ID` — default server ID
+- `DISC_CONFIG_LOCATION` — override config file location: `local` or `global`
+
+### Config file locations
+
+disc supports two config file locations:
+
+- **Local directory** (`server.json` in the current directory) — commit it to version control and manage your server as code. Best for teams.
+- **disc config directory** (`~/.config/disc/servers/<server-id>/server.json`) — all server configs live in a known location. Best for simple, personal server usage.
+
+Run `disc init` to choose your preferred location.
 
 ### First-time setup
 
@@ -63,9 +67,7 @@ loaded from a local `.env` file in the directory you run it from.
 disc init
 ```
 
-Prompts for your bot token, validates it, and writes `DISCORD_TOKEN=...` to
-a `.env` file in the current directory. It then prints an invite link to add
-the bot to a server.
+Prompts for your bot token, validates it, records your chosen config location, and prints an invite link to add the bot to a server.
 
 ## Quick start
 
@@ -86,19 +88,14 @@ disc invite
 Commands that operate on a server resolve the server ID in this order:
 
 1. The `--server` flag
-2. The `DISCORD_SERVER_ID` environment variable (which may come from `.env`)
-3. The single server the bot is a member of, if it's in exactly one server
-
-If the bot is in more than one server and no explicit server ID is given,
-disc asks you to either set `DISCORD_SERVER_ID` or pass `--server`.
+2. The `DISCORD_SERVER_ID` environment variable
+3. A local `server.json` in the current directory (if it exists)
+4. The disc config directory's default server (if exactly one is configured)
 
 ## Confirmation prompts & interactive forms
 
-Every mutating command (create, update, delete, move) asks for a yes/no
-confirmation before making changes. In an interactive terminal, the `add`
-commands (`channel add`, `role add`, `event add`) instead show a full form
-prefilled from any flags you pass — with multi-select pickers for role/channel
-permissions.
+Every mutating command (create, update, delete) asks for a yes/no
+confirmation before making changes. In an interactive terminal, the `event add` command shows a full form prefilled from any flags you pass.
 
 Flags control this for scripting and agents:
 
@@ -106,72 +103,86 @@ Flags control this for scripting and agents:
 - `--dry` — print what would happen and exit without changing anything.
 - `--agent` — force everything non-interactive (disables forms and prompts). If
   a required parameter is missing, the command returns a descriptive error
-  naming the missing field instead of blocking on stdin.
+  naming the missing field instead of blocking.
 
-Pass both `--dry` and `--yes` and `--dry` wins, so `disc ... --dry --yes` just
-shows the plan. Humans omit the flags and get the interactive prompt/form;
-agents and scripts use `--agent` (optionally with `--yes` to apply, `--dry` to
-preview) to guarantee the CLI never blocks.
+## Config file
 
-## Declarative config
+The server config is a JSON file containing your server's roles and channels:
 
-Roles and channels can be managed declaratively through a single JSON file
-(`server.json`), combining what used to be separate snapshots into one
-source of truth that can be committed and reapplied.
+```json
+{
+  "server_id": "...",
+  "roles": [...],
+  "channels": [...]
+}
+```
+
+### Pull and push
 
 ```bash
-# Snapshot the live server into server.json (roles + channels together)
+# Snapshot the live server into the config file
 disc config pull
 
-# Make declarative edits to the config file instead of the server
-disc config role add --name Moderator --permissions "Kick Members,Ban Members"
-disc config role update --role 123456789 --color 00FF00
-disc config role update --role 123456789 --position 3
-disc config role delete --role 123456789
-disc config channel add --name help --category Staff
-disc config channel move --channel 111111111 --position 0
-disc config channel update --channel 111111111 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
-disc config channel update --channel 111111111 --no-overwrite Moderator
-disc config channel delete --channel 111111111
-
-# Apply the config to the live server (shows a dry run first, then confirms)
+# Apply the config to the live server
 disc config push
-disc config push --delete-missing
-# Non-interactive: preview with --dry, apply with --yes
+
+# Preview what would change
 disc config push --dry
+
+# Apply without prompting
 disc config push --yes
+
+# Also delete server resources absent from the config file
 disc config push --delete-missing --yes
 ```
 
-`disc config pull` includes each role and channel's server ID, role/channel
-positions, and channel permission overwrites, so edits can reference resources
-by ID. `disc config push` matches entries by ID when present and by name
-otherwise, so it is **idempotent** — running it again produces no changes, and
-a partial setup is left untouched. It prints a dry-run plan and confirms before
-applying (or `--yes` skips the prompt, `--dry` shows the plan only). Deleting
-resources absent from the file only
-happens with `--delete-missing`; when it does, the dry run warns (in red) that
-deletion is non-reversible. Managed roles,
-`@everyone`, system channels, and member-level permission overwrites are never
-deleted.
+### Edit the config
 
-Channel permission overwrites are managed per role. On `push`, overwrites
-absent from the config are preserved unless `--delete-missing` is given.
+Roles and channels are edited via subcommands — nothing changes on the server until you push.
 
-To find the exact permission names used by `--permissions` (and `--allow` /
-`--deny`), run:
+```bash
+# Roles
+disc config role add --name Moderator --permissions "Kick Members,Ban Members"
+disc config role update --role 123456789 --color 00FF00
+disc config role delete --role 123456789
+
+# Channels
+disc config channel add --name help --category Staff
+disc config channel update --channel 111111111 --topic "Welcome"
+disc config channel delete --channel 111111111
+```
+
+Find exact permission names with:
 
 ```bash
 disc role perm list
 ```
 
-Imperatively, channel permission overwrites can be set at creation or update,
-and channel details inspected, like so:
+To find the exact `--role` / `--channel` IDs, use `disc config pull` to snapshot the server, then look them up in `server.json`.
+
+### Config file resolution
+
+When no `--file` is given, disc resolves the config file like this:
+
+1. `--file` flag wins.
+2. A local `server.json` in the current directory wins (so a committed file in a repo is always used).
+3. Otherwise, if `DISCORD_SERVER_ID` is set or only one disc config directory server exists, uses `~/.config/disc/servers/<id>/server.json`.
+
+You can also set `DISC_CONFIG_LOCATION=global` or `local` to control the default.
+
+### Multiple servers
+
+disc manages multiple servers by storing each server's config and bot token in its own directory under `~/.config/disc/servers/`. Set `DISCORD_SERVER_ID` or pass `--server` to switch between them.
+
+## Scheduled events
+
+Events are managed directly (imperatively) since they have a lifecycle (scheduled → active → completed/canceled):
 
 ```bash
-disc channel add --name general --allow "Moderator:Send Messages"
-disc channel update --channel 111111111 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
-disc channel show --channel 111111111
+disc event list
+disc event add --name "Coffee Break" --start "2026-01-15 19:00" --channel 123456789
+disc event update --event 987654321 --name "New Name"
+disc event delete --event 987654321
 ```
 
 ## Documentation
@@ -181,9 +192,8 @@ way to understand how to do things is to ask the CLI itself:
 
 ```bash
 disc --help
-disc channel add --help
+disc channel list --help
 ```
 
 We also publish a full command reference at [docs/commands.md](./docs/commands.md)
 for anyone who prefers to read it from the web.
-

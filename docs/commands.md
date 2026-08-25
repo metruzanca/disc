@@ -22,51 +22,17 @@ Generate an OAuth2 invite link to add the bot to a server.
 disc invite
 ```
 
-## Channels
+## Channels (read-only)
 
 ```bash
 # List channels, grouped by category
 disc channel list
 
-# Create a channel (text by default)
-disc channel add --name general
-disc channel add --name voice-chat --type voice
-disc channel add --name help --category 987654321
-
-# Update a channel
-disc channel update --channel 123456789 --name new-name
-disc channel update --channel 123456789 --topic "Welcome to the channel"
-disc channel update --channel 123456789 --category 987654321
-
-# Delete a channel
-disc channel delete --channel 123456789
-
-# Move a channel to a position or category
-disc channel move --channel 111111111 --position 0
-disc channel move --channel 111111111 --category 222222222
-disc channel move --channel 111111111 --category 222222222 --position 3
-
 # Show channel details, including permission overwrites
 disc channel show --channel 123456789
-
-# Set permission overwrites (role-based) on create or update
-disc channel add --name general --allow "Moderator:Send Messages"
-disc channel update --channel 123456789 --allow "Moderator:Send Messages" --deny "@everyone:Attach Files"
 ```
 
-- `disc channel add` — `--name` (required), `--type` (`text` or `voice`, default `text`), `--category`, `--allow`, `--deny`
-- `disc channel update` — `--channel` (required), `--name`, `--topic`, `--category`, `--nsfw`, `--allow`, `--deny`
-- `disc channel delete` — `--channel` (required)
-- `disc channel move` — `--channel` (required), `--position` (0-indexed), `--category` (use `none` to remove from a category)
-- `disc channel show` — `--channel` (required)
-- All mutating channel commands accept `--yes` (apply without prompting), `--dry` (show what would happen only), and `--agent` (force non-interactive).
-
-`--allow` and `--deny` take `Role:Perm,Perm` values and are repeatable; the
-un-provided side of an overwrite is preserved. Member-level overwrites are not
-managed by disc. System channels (rules, updates, welcome) are never deleted by
-`disc config push`.
-
-## Roles
+## Roles (read-only)
 
 ```bash
 # List roles, sorted by hierarchy (highest first)
@@ -75,28 +41,9 @@ disc role list
 # Show role details
 disc role show --role 987654321
 
-# Create a role
-disc role add --name "Moderator"
-disc role add --name "VIP" --color FF0000 --hoist
-disc role add --name "Helper" --mentionable
-
-# Update a role
-disc role update --role 987654321 --name "New Name"
-disc role update --role 987654321 --color 00FF00
-disc role update --role 987654321 --hoist=false
-
-# Delete a role
-disc role delete --role 987654321
-
 # List the exact names to use with --permissions
 disc role perm list
 ```
-
-- `disc role add` — `--name` (required), `--color` (hex, e.g. `FF0000`), `--hoist`, `--mentionable`, `--permissions`
-- `disc role update` — `--role` (required), `--name`, `--color`, `--hoist`, `--mentionable`, `--permissions`
-- `disc role delete` — `--role` (required)
-- `disc role perm list` — lists every recognized permission name
-- All mutating role commands accept `--yes`, `--dry`, and `--agent`.
 
 Managed (integration/bot) roles and `@everyone` are never deleted by
 `disc config push`.

@@ -1,7 +1,6 @@
 # Declarative example: building a programming community
 
-This example builds the same community as the
-[imperative walkthrough](./imperative.md) but uses the declarative `disc config`
+This example builds a programming community server using the `disc config`
 workflow. All edits are local — nothing touches the live server until
 `disc config push`.
 
@@ -334,5 +333,5 @@ community from a single file. Because all edits are local, you can iterate on
 the config without touching Discord, preview the plan with `--dry`, and apply
 it all at once.
 
-For quick, one-off changes to a live server, use the
-[imperative workflow](./imperative.md) instead.
+For quick, one-off changes to a live server, use the `disc config` edit
+commands to make targeted changes and push.

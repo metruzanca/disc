@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/metruzanca/disc/internal/util"
@@ -11,6 +12,7 @@ import (
 // configRoleEditFlags are the value flags shared by role add/update.
 type configRoleEditFlags struct {
 	file        string
+	server      string
 	name        string
 	color       string
 	hoist       bool
@@ -29,8 +31,9 @@ var (
 	configRoleAddFlags = configRoleEditFlags{}
 	configRoleUpFlags  = configRoleUpdateFlags{}
 	configRoleDelFlags = struct {
-		file string
-		role string
+		file   string
+		server string
+		role   string
 	}{}
 )
 
@@ -61,11 +64,22 @@ func findRoleInConfig(cfg *serverConfigFile, id string) int {
 	return -1
 }
 
-// loadConfigFileForEdit loads the config file for an edit command.
-func loadConfigFileForEdit(file string) (*serverConfigFile, string, error) {
-	path := configFileOr(file)
+// loadConfigFileForEdit loads the config file for an edit command. If create
+// is true and the file does not exist, it creates an empty config skeleton at
+// the resolved path.
+func loadConfigFileForEdit(file, serverHint string, create bool) (*serverConfigFile, string, error) {
+	path, err := resolveConfigFile(file, serverHint)
+	if err != nil {
+		return nil, "", err
+	}
 	var cfg serverConfigFile
 	if err := readConfigFile(path, &cfg); err != nil {
+		if create && os.IsNotExist(err) {
+			if err := writeConfigFile(&cfg, path); err != nil {
+				return nil, "", err
+			}
+			return &cfg, path, nil
+		}
 		return nil, "", err
 	}
 	return &cfg, path, nil
@@ -84,7 +98,8 @@ Examples:
   disc config role add --name Helper --permissions "Send Messages,Add Reactions"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configRoleAddFlags.file)
+		hint := resolveServerHint(configRoleAddFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configRoleAddFlags.file, hint, true)
 		if err != nil {
 			return err
 		}
@@ -133,7 +148,8 @@ Examples:
   disc config role update --role 987654321 --position 3`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configRoleUpFlags.file)
+		hint := resolveServerHint(configRoleUpFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configRoleUpFlags.file, hint, false)
 		if err != nil {
 			return err
 		}
@@ -191,7 +207,8 @@ Example:
   disc config role delete --role 987654321`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, path, err := loadConfigFileForEdit(configRoleDelFlags.file)
+		hint := resolveServerHint(configRoleDelFlags.server)
+		cfg, path, err := loadConfigFileForEdit(configRoleDelFlags.file, hint, false)
 		if err != nil {
 			return err
 		}
@@ -214,14 +231,16 @@ func init() {
 	configRoleCmd.AddCommand(configRoleUpdateCmd)
 	configRoleCmd.AddCommand(configRoleDeleteCmd)
 
-	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.file, "file", "", "Config file (defaults to server.json)")
+	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.server, "server", "", "Server ID (for global config location)")
 	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.name, "name", "", "Role name (required)")
 	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
 	configRoleAddCmd.Flags().BoolVar(&configRoleAddFlags.hoist, "hoist", false, "Display role separately in member list")
 	configRoleAddCmd.Flags().BoolVar(&configRoleAddFlags.mentionable, "mentionable", false, "Allow anyone to mention this role")
 	configRoleAddCmd.Flags().StringVar(&configRoleAddFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 
-	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.file, "file", "", "Config file (defaults to server.json)")
+	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.server, "server", "", "Server ID (for global config location)")
 	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.role, "role", "", "Role ID to update (required)")
 	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.name, "name", "", "New role name")
 	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.color, "color", "", "Role color in hex (e.g., FF0000 for red)")
@@ -230,6 +249,7 @@ func init() {
 	configRoleUpdateCmd.Flags().StringVar(&configRoleUpFlags.permissions, "permissions", "", "Comma-separated permission names; see 'disc role perm list'")
 	configRoleUpdateCmd.Flags().IntVar(&configRoleUpFlags.position, "position", 0, "Role position (hierarchy rank; higher is above)")
 
-	configRoleDeleteCmd.Flags().StringVar(&configRoleDelFlags.file, "file", "", "Config file (defaults to server.json)")
+	configRoleDeleteCmd.Flags().StringVar(&configRoleDelFlags.file, "file", "", "Config file (defaults to resolved location)")
+	configRoleDeleteCmd.Flags().StringVar(&configRoleDelFlags.server, "server", "", "Server ID (for global config location)")
 	configRoleDeleteCmd.Flags().StringVar(&configRoleDelFlags.role, "role", "", "Role ID to delete (required)")
 }

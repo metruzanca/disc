@@ -11,7 +11,7 @@ import (
 //
 // Resolution order:
 //  1. the --server flag
-//  2. the DISCORD_SERVER_ID environment variable (or .env)
+//  2. the DISCORD_SERVER_ID environment variable (or .env / global env)
 //  3. the single server the bot is a member of (if exactly one)
 //
 // If the bot is in more than one server and no explicit ID is given, an
@@ -41,6 +41,11 @@ func resolveServerID(flagValue string, client *discord.Client) (string, error) {
 
 // newClientAndServer creates a connected client and resolves the server ID.
 func newClientAndServer(serverFlag string) (*discord.Client, string, error) {
+	if serverFlag != "" {
+		if err := config.LoadForServer(serverFlag); err != nil {
+			return nil, "", err
+		}
+	}
 	client, err := newClient()
 	if err != nil {
 		return nil, "", err

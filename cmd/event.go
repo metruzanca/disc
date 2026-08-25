@@ -86,8 +86,8 @@ var (
 )
 
 var eventShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Show scheduled event details",
+	Use:     "show",
+	Short:   "Show scheduled event details",
 	Example: `  disc event show --event 987654321`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if eventShowFlags.event == "" {
